@@ -542,9 +542,7 @@ export default function (app, ctx) {
       var chMdPath = path.join(chDir, chapterId + '.md');
       if (fs.existsSync(chMdPath)) {
         var existingBody = fs.readFileSync(chMdPath, 'utf-8');
-        var imgMd = '
-![封面](' + imgRelPath + ')
-';
+        var imgMd = '\n![封面](' + imgRelPath + ')\n';
         fs.writeFileSync(chMdPath, existingBody + imgMd, 'utf-8');
       }
       return c.json({ ok: true, imgPath: imgRelPath, fileName: safeName });
