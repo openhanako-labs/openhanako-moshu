@@ -435,10 +435,11 @@ export default function (app, ctx) {
       // 构建 AI 生图 prompt
       var prompt = 'A cinematic illustration for a novel chapter titled "' + title + '". Scene: ' + bodyText + '. Style: ' + style + '. High quality, detailed, atmospheric lighting, novel illustration style, no text, no watermark.';
 
-      // 通过 bus 调用生图插件
+      // 通过 bus 调用生图插件（sessionPath 用项目路径代替，绕过 null 检查）
+      var fakeSession = path.join(dd, 'projects', id);
       var result = await ctx.bus.request('media-gen:submit-image', {
         input: { type: 'image', prompt: prompt, ratio: '16:9', resolution: '2k' },
-        sessionPath: '', // 前端触发，没有 sessionPath
+        sessionPath: fakeSession,
         metadata: { chapterId: chapterId, chapterTitle: title, projectId: id },
       });
 
