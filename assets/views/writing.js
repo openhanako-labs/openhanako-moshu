@@ -1,4 +1,4 @@
-var _showImageGen = false;
+﻿var _showImageGen = false;
 
 function renderWritingSidebar() {
   var h = '<div class="sidebar-header">项目<span class="count">' + _projects.length + '</span></div>';
@@ -328,6 +328,7 @@ function renderChapterContent() {
   h += '<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="autoFormatEditor()" title="自动排版">✦ 排版</button>';
   h += '<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="proofreadEditor()" title="校对常见错误">✓ 校对</button>';
   h += '<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="splitChapter()" title="拆分章节">✂️ 拆分</button>';
+  h += '<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="insertImageToChapter()" title="插入图片到光标位置">📷 插入图片</button>';
   h += '<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="showVersionHistory(\'' + ch.id + '\')" title="版本历史">🌳 历史</button>';
   h += '<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="suggestDirections(\'' + ch.id + '\')" title="AI 方向建议">💡 建议</button>';
   if (_editing) {
@@ -1729,4 +1730,52 @@ async function doGenerateCover() {
     toast('❌ 生图请求失败: ' + e.message);
     statusEl.textContent = '';
   }
+}
+
+
+// ═══════════════════════════════════
+//  插入图片到章节
+// ═══════════════════════════════════
+
+async function insertImageToChapter() {
+  if (!_currentProject) { toast("? 请先选择项目"); return; }
+  if (!_currentChapter) { toast("? 请先选择章节"); return; }
+  var input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.onchange = async function(e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = async function(ev) {
+      var base64 = ev.target.result;
+      toast("? 正在上传并插入图片...");
+      try {
+        var resp = await fetch(tu(A + "/api/project/" + encodeURIComponent(_currentProject.id) + "/insert-image"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chapterId: _currentChapter.id, fileName: file.name, imageData: base64 })
+        });
+        var data = await resp.json();
+        if (!data.ok) throw new Error(data.error || "insert failed");
+        var rc = await fetch(tu(A + "/api/project/" + encodeURIComponent(_currentProject.id) + "/chapters"));
+        _chapters = await rc.json();
+        _currentChapter = _chapters.find(function(c) { return c.id === _currentChapter.id; });
+        var imgMd = "\n![封面](" + data.imgPath + ")\n";
+        var ta = q("chb");
+        if (ta) {
+          var pos = ta.selectionStart || ta.value.length;
+          var before = ta.value.substring(0, pos);
+          var after = ta.value.substring(pos);
+          if (before.length > 0 && !before.endsWith("\n\n")) before += "\n";
+          ta.value = before + imgMd + after;
+          ta.selectionStart = ta.selectionEnd = pos + imgMd.length;
+          _draftDirty = true;
+        }
+        toast("? 图片插入成功");
+      } catch(ert) { toast("? 插入失败: " + ert.message); }
+    };
+    reader.readAsDataURL(file);
+  };
+  input.click();
 }

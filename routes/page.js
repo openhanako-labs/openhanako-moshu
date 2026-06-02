@@ -428,6 +428,7 @@ export default function (app, ctx) {
       var chapter = (chaptersIdx.chapters || []).find(function(ch){ return ch.id === chapterId; });
       if (!chapter) return c.json({ error: "chapter not in index" }, 404);
       var title = chapter.title || 'Untitled';
+      var chDir = path.dirname(chapterPath);
 
       // 提取正文（去掉 markdown 标题和格式标记）
       var bodyText = chapterBody.replace(/^###?\\s+.+$/gm, '').replace(/\\*\\*/g, '').replace(/===/g, '').slice(0, 600);
@@ -446,6 +447,41 @@ export default function (app, ctx) {
       if (!result || result.ok === false) {
         return c.json({ ok: false, error: result?.error || 'submit failed' }, 500);
       }
+
+      // 异步等待生图完成后自动写入封面到章节
+      (async function waitForComplete() {
+        try {
+          for (var i = 0; i < 60; i++) {
+            await new Promise(function(r) { setTimeout(r, 2000); });
+            var st = await ctx.bus.request('media-gen:get-task', { taskId: result.taskId });
+            if (!st || !st.task) continue;
+            var tk = st.task;
+            if (tk.status === 'completed' && tk.files && tk.files.length > 0) {
+              var imgFile = tk.files[0];
+              var imgName = typeof imgFile === 'string' ? imgFile : (imgFile.name || imgFile.path);
+              // 从 image-gen generated 目录复制到章节目录/文本附件
+              var generatedDir = path.join(dd, 'image-gen', 'generated');
+              var srcFile = path.join(generatedDir, imgName);
+              var assetDir = path.join(chDir, '文本附件');
+              fs.mkdirSync(assetDir, { recursive: true });
+              var dstFile = path.join(assetDir, imgName);
+              if (fs.existsSync(srcFile)) {
+                fs.copyFileSync(srcFile, dstFile);
+              } else {
+                // 备用：直接从 files 里找
+                dstFile = imgName;
+              }
+              var imgRelPath = '文本附件/' + imgName;
+              // 写入封面 YAML front matter
+              var coverYaml = '---\ncover:\n  image: ' + imgRelPath + '\n---\n';
+              var newBody = coverYaml + chapterBody;
+              fs.writeFileSync(chapterPath, newBody, 'utf-8');
+              break;
+            }
+            if (tk.status === 'failed') break;
+          }
+        } catch(e) { /* 静默忽略后台写入错误 */ }
+      })();
 
       return c.json({ ok: true, taskId: result.taskId });
     } catch(e) { return c.json({ error: e.message }, 500); }
@@ -467,6 +503,51 @@ export default function (app, ctx) {
         failReason: task.failReason || null,
       };
       return c.json(result);
+    } catch(e) { return c.json({ error: e.message }, 500); }
+  });
+
+  // ── 手动插入图片到章节 ──
+  app.post('/api/project/:id/insert-image', async c => {
+    const id = safeProjectId(c.req.param('id'));
+    if (!id) return c.json({ error: 'bad id' }, 400);
+    try {
+      const body = await c.req.json();
+      var chapterId = body.chapterId || '';
+      var fileName = body.fileName || 'image.png';
+      var imageData = body.imageData || '';
+      // 去掉 base64 prefix
+      var base64Data = '';
+      if (imageData.startsWith('data:')) {
+        base64Data = imageData.split(',')[1];
+      } else {
+        base64Data = imageData;
+      }
+      const Buffer = await import('node:buffer');
+      var imgBuf = Buffer.Buffer.from(base64Data, 'base64');
+      // 保存到章节目录的 文本附件 子目录
+      const chDir = path.join(dd, 'projects', id, 'chapters');
+      const assetDir = path.join(chDir, '文本附件');
+      fs.mkdirSync(assetDir, { recursive: true });
+      // 生成唯一文件名
+      var ext = 'png';
+      if (fileName.includes('.')) {
+        ext = fileName.split('.').pop().toLowerCase().split('?')[0];
+        if (!['jpg','jpeg','png','gif','webp'].includes(ext)) ext = 'png';
+      }
+      var safeName = (chapterId + '_' + Date.now() + '.' + ext).replace(/[^a-zA-Z0-9_.-]/g, '_');
+      var filePath = path.join(assetDir, safeName);
+      fs.writeFileSync(filePath, imgBuf);
+      var imgRelPath = '文本附件/' + safeName;
+      // 更新章节 body：追加图片引用
+      var chMdPath = path.join(chDir, chapterId + '.md');
+      if (fs.existsSync(chMdPath)) {
+        var existingBody = fs.readFileSync(chMdPath, 'utf-8');
+        var imgMd = '
+![封面](' + imgRelPath + ')
+';
+        fs.writeFileSync(chMdPath, existingBody + imgMd, 'utf-8');
+      }
+      return c.json({ ok: true, imgPath: imgRelPath, fileName: safeName });
     } catch(e) { return c.json({ error: e.message }, 500); }
   });
 }
