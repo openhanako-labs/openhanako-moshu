@@ -1,3 +1,5 @@
+var _showImageGen = false;
+
 function renderWritingSidebar() {
   var h = '<div class="sidebar-header">项目<span class="count">' + _projects.length + '</span></div>';
   h += '<div class="sidebar-list' + (_batchSelect ? ' batch-mode' : '') + '">';
@@ -19,9 +21,7 @@ function renderWritingSidebar() {
   h += '</div>';
   q('sidebar').innerHTML = h;
 
-  console.log('[墨述] renderWritingSidebar: _currentProject =', !!_currentProject, _currentProject);
   if (_currentProject) {
-    console.log('[墨述] calling renderMainPanel');
     renderMainPanel();
   } else {
     q('main-panel').innerHTML = '<div class="empty-state"><div class="icon">📝</div><div class="title">选择一个项目开始写作</div><div class="desc">左侧项目列表中点击项目名进入</div></div>';
@@ -29,10 +29,8 @@ function renderWritingSidebar() {
 }
 
 async function openProject(id) {
-  console.log('[墨述] openProject called:', id);
   var p = _projects.find(function(x) { return x.id === id; });
-  console.log('[墨述] found project:', p);
-  if (!p) { console.log('[墨述] project not found in _projects, array:', JSON.stringify(_projects)); return; }
+  if (!p) return;
   _currentProject = p;
   _currentChapter = null;
   _editing = false;
@@ -40,9 +38,7 @@ async function openProject(id) {
   _expandedVolumes = {};
   _selectedChapters = [];
 
-  var tp = q('title-project');
-  console.log('[墨述] title-project element:', tp);
-  if (tp) tp.textContent = '📁 ' + esc(p.name);
+  q('title-project').textContent = '📁 ' + esc(p.name);
   updateStatusBar();
 
   try {
