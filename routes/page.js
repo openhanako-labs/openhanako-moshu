@@ -410,4 +410,62 @@ export default function (app, ctx) {
       return c.json(JSON.parse(result.content[0].text));
     } catch(e) { return c.json({ error: e.message }, 500); }
   });
+
+  // ── 章节配图生成 ──
+  app.post("/api/project/:id/generate-cover", async c => {
+    const id = safeProjectId(c.req.param("id"));
+    if (!id) return c.json({ error: "bad id" }, 400);
+    try {
+      const body = await c.req.json();
+      var chapterId = body.chapterId || '';
+      var style = body.style || 'cinematic, dark atmosphere, anime style';
+
+      // 读取章节内容
+      const chapterPath = path.join(dd, "projects", id, "chapters", chapterId + ".md");
+      if (!fs.existsSync(chapterPath)) return c.json({ error: "chapter not found" }, 404);
+      var chapterBody = fs.readFileSync(chapterPath, "utf-8");
+      var chaptersIdx = JSON.parse(fs.readFileSync(path.join(dd, "projects", id, "chapters.json"), "utf-8"));
+      var chapter = (chaptersIdx.chapters || []).find(function(ch){ return ch.id === chapterId; });
+      if (!chapter) return c.json({ error: "chapter not in index" }, 404);
+      var title = chapter.title || 'Untitled';
+
+      // 提取正文（去掉 markdown 标题和格式标记）
+      var bodyText = chapterBody.replace(/^###?\\s+.+$/gm, '').replace(/\\*\\*/g, '').replace(/===/g, '').slice(0, 600);
+
+      // 构建 AI 生图 prompt
+      var prompt = 'A cinematic illustration for a novel chapter titled "' + title + '". Scene: ' + bodyText + '. Style: ' + style + '. High quality, detailed, atmospheric lighting, novel illustration style, no text, no watermark.';
+
+      // 通过 bus 调用生图插件
+      var result = await ctx.bus.request('media-gen:submit-image', {
+        input: { type: 'image', prompt: prompt, ratio: '16:9', resolution: '2k' },
+        sessionPath: '', // 前端触发，没有 sessionPath
+        metadata: { chapterId: chapterId, chapterTitle: title, projectId: id },
+      });
+
+      if (!result || result.ok === false) {
+        return c.json({ ok: false, error: result?.error || 'submit failed' }, 500);
+      }
+
+      return c.json({ ok: true, taskId: result.taskId });
+    } catch(e) { return c.json({ error: e.message }, 500); }
+  });
+
+  // ── 获取生成结果 ──
+  app.get("/api/project/:id/generate-cover/status/:taskId", async c => {
+    const id = safeProjectId(c.req.param("id"));
+    if (!id) return c.json({ error: "bad id" }, 400);
+    const taskId = c.req.param("taskId");
+    try {
+      // 从生图插件 store 查询任务状态
+      var taskResult = await ctx.bus.request('media-gen:get-task', { taskId: taskId });
+      if (!taskResult || !taskResult.task) return c.json({ status: 'not_found' });
+      var task = taskResult.task;
+      var result = {
+        status: task.status, // pending, completed, failed
+        files: task.files || [],
+        failReason: task.failReason || null,
+      };
+      return c.json(result);
+    } catch(e) { return c.json({ error: e.message }, 500); }
+  });
 }

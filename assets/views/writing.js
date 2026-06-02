@@ -112,7 +112,25 @@ function renderMainPanel() {
   h += '<input type="text" placeholder="🔍 搜索..." style="width:110px;padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;font-family:var(--font-ui);outline:none" id="chapterSearch" oninput="renderMainPanel()" onkeydown="if(event.key===\'Escape\'){this.value=\'\';renderMainPanel()}">';
   h += '<button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="exportProject(\'txt\')" title="导出 TXT">📄 TXT</button>';
   h += '<button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="exportProject(\'epub\')" title="导出 EPUB">📖 EPUB</button>';
+  h += '<button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="showImageGenPanel()" title="为章节生成配图">🎨 生图</button>';
   h += '</div>';
+  if (_showImageGen) {
+    h += '<div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--rm);padding:12px;margin:8px 0">';
+    h += '<div style="font-size:12px;font-weight:600;margin-bottom:8px">🎨 章节配图生成</div>';
+    h += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">';
+    h += '<select id="imgGenChapter" style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;font-family:var(--font-ui)">';
+    h += '<option value="">— 选择章节 —</option>';
+    _chapters.forEach(function(ch){ h += '<option value="'+ch.id+'">'+esc(ch.title)+' ('+ch.status+')</option>'; });
+    h += '</select>';
+    h += '<input type="text" id="imgGenStyle" value="cinematic, dark atmosphere, anime style" placeholder="风格描述" style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;font-family:var(--font-ui)">';
+    h += '</div>';
+    h += '<div style="display:flex;gap:6px">';
+    h += '<button class="btn btn-primary" style="font-size:11px;padding:4px 12px" onclick="doGenerateCover()">⚡ 生成配图</button>';
+    h += '<button class="btn btn-ghost" style="font-size:11px;padding:4px 8px" onclick="_showImageGen=false;renderMainPanel()">取消</button>';
+    h += '<span id="imgGenStatus" style="font-size:11px;color:var(--text-muted);margin-left:auto"></span>';
+    h += '</div>';
+    h += '</div>';
+  }
   h += '</div>';
   h += '<div class="batch-actions" style="' + (_batchSelect && _selectedChapters.length > 0 ? '' : 'display:none') + '"><span style="font-size:11px;color:var(--text-muted);margin-right:8px">已选 ' + _selectedChapters.length + ' 章</span><button class="btn btn-primary" style="font-size:11px;padding:4px 10px" onclick="mergeSelectedChapters()">📑 合并选中</button></div>';
   // 搜索过滤
@@ -1644,16 +1662,69 @@ async function doSplitChapter(chId, splitPos, title1, title2) {
 // ═══════════════════════════════════
 
 
-function exportProject(format) {
+// ═══════════════════════════════════
+//  生图功能 — 章节配图生成
+// ═══════════════════════════════════
+function showImageGenPanel() {
+  _showImageGen = !_showImageGen;
+  renderMainPanel();
+}
+
+async function doGenerateCover() {
   if (!_currentProject) return;
-  var id = _currentProject.id;
-  var url = tu(A + '/api/project/' + encodeURIComponent(id) + '/export/' + format);
-  toast('⏳ 导出中...');
-  fetch(url).then(function(r) { return r.json(); }).then(function(d) {
-    if (d.ok) {
-      toast('✅ 已保存到 ' + d.path);
-    } else {
-      toast('❌ ' + (d.error || '导出失败'));
-    }
-  }).catch(function() { toast('❌ 导出失败'); });
+  var chapterSelect = document.getElementById('imgGenChapter');
+  var styleInput = document.getElementById('imgGenStyle');
+  var statusEl = document.getElementById('imgGenStatus');
+  if (!chapterSelect) return;
+  var chapterId = chapterSelect.value;
+  if (!chapterId) { toast('❌ 请先选择章节'); return; }
+
+  toast('⏳ 正在生成配图...');
+  statusEl.textContent = '⏳ 请求生图任务...';
+  var style = styleInput ? styleInput.value.trim() || 'cinematic, dark atmosphere, anime style' : 'cinematic, dark atmosphere, anime style';
+
+  try {
+    var resp = await fetch(tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/generate-cover'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapterId: chapterId, style: style }),
+    });
+    var result = await resp.json();
+    if (!result.ok) { toast('❌ ' + (result.error || '生图失败')); statusEl.textContent = ''; return; }
+
+    var taskId = result.taskId;
+    statusEl.textContent = '⏳ 生成中（约30秒）...';
+    toast('⏳ 图片生成中，请稍后');
+
+    // 轮询检查生成结果
+    (async function poll() {
+      for (var i = 0; i < 40; i++) {
+        await new Promise(function(r) { setTimeout(r, 2000); });
+        try {
+          var checkResp = await fetch(tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/generate-cover/status/' + encodeURIComponent(taskId)));
+          var checkResult = await checkResp.json();
+          if (checkResult.status === 'completed' && checkResult.files && checkResult.files.length > 0) {
+            statusEl.textContent = '✅ 完成！';
+            toast('✅ 配图已生成！请在生图面板查看，或让我写入章节封面');
+            _showImageGen = false;
+            renderMainPanel();
+            return;
+          }
+          if (checkResult.status === 'failed') {
+            statusEl.textContent = '❌ 失败';
+            toast('❌ ' + (checkResult.failReason || '生成失败'));
+            return;
+          }
+          if (i % 5 === 0) {
+            statusEl.textContent = '⏳ 生成中... (' + (i * 2) + 's)';
+          }
+        } catch(e) {}
+      }
+      statusEl.textContent = '⚠️ 超时';
+      toast('⚠️ 生成超时，请在生图插件面板查看');
+    })();
+  } catch(e) {
+    toast('❌ 生图请求失败: ' + e.message);
+    statusEl.textContent = '';
+  }
 }
