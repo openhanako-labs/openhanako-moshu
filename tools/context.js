@@ -9,7 +9,7 @@ const parameters = {
   properties: {
     projectId: { type: "string", description: "项目 ID" },
     nextChapterTitle: { type: "string", description: "即将写的章节标题（可选，用于关键词匹配事实）" },
-    maxFacts: { type: "number", description: "返回事实上限（可选，默认 10）" },
+    maxFacts: { type: "number", description: "返回事实上限（可选，默认 50）" },
     maxPrevChapters: { type: "number", description: "前文章节数（可选，默认 3）" },
     currentChapterId: { type: "string", description: "当前正在写的章节 ID（用于章槛过滤，可选）" },
   },
@@ -18,7 +18,7 @@ const parameters = {
 
 async function execute(input) {
   try {
-    const { projectId, nextChapterTitle, maxFacts = 10, maxPrevChapters = 3, currentChapterId } = input;
+    const { projectId, nextChapterTitle, maxFacts = 50, maxPrevChapters = 3, currentChapterId } = input;
     const { safeProjectId, getDataDir } = await import("../lib/config.js");
     const pid = safeProjectId(projectId); if (!pid) throw new Error("无效项目 ID");
     const dataDir = await getDataDir();

@@ -71,7 +71,9 @@ async function execute(input) {
       if (!facts.length) return error("📭 未找到匹配事实");
       return json({ ok: true, count: facts.length, facts: facts.map(f => ({
         id: f.id, type: f.type, content: f.content.slice(0, 200),
-        confidence: f.confidence, tags: f.tags
+        confidence: f.confidence, tags: f.tags,
+        priority: f.priority || 0, constant: f.constant || false,
+        chapter_gate: f.chapter_gate || null
       })) });
     }
 
