@@ -642,7 +642,7 @@ function renderMarkdown(body) {
     if (!coverPath.startsWith('data:')) {
       coverUrl = tu(A + "/api/project/" + encodeURIComponent(_currentProject.id) + "/asset/" + encodeURIComponent(coverPath));
     }
-    coverImgHtml = '<img src="' + coverUrl + '" style="max-width:100%;height:auto;border-radius:var(--radius);margin:8px 0;display:block" alt="封面">\n';
+    coverImgHtml = '<img src="' + coverUrl + '" style="max-width:100%;height:auto;border-radius:var(--radius);margin:8px 0;display:block;cursor:pointer" data-imgpath="' + esc(coverPath) + '" data-imgtype="' + (coverPath.startsWith('data:') ? 'inline' : 'server') + '" alt="封面">\n';
     console.log('[renderMarkdown] coverImg built');
   }
   
