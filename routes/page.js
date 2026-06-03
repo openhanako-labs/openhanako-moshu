@@ -22,7 +22,46 @@ export default function (app, ctx) {
   app.get("/api/projects", async c => { try { const fs = await import("node:fs"), path = await import("node:path"); const p = path.join(dd, "projects"); if (!fs.existsSync(p)) return c.json([]); return c.json(fs.readdirSync(p).map(d => { try { const j = path.join(p, d, "project.json"); return fs.existsSync(j) ? JSON.parse(fs.readFileSync(j, "utf-8")) : null; } catch { return null; } }).filter(Boolean)); } catch (e) { return c.json({ error: e.message }, 500); } });
   app.post("/api/project", async c => { try { const fs = await import("node:fs"), path = await import("node:path"), crypto = await import("node:crypto"); const b = await c.req.json(); const id = b.name.replace(/[^a-z0-9\u4e00-\u9fa5]/gi, "_").slice(0, 32) + "_" + Date.now().toString(36); const pp = path.join(dd, "projects", id); fs.mkdirSync(pp, { recursive: true }); const proj = { id, name: b.name, type: b.type || "未分类", summary: b.summary || "", created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; fs.writeFileSync(path.join(pp, "project.json"), JSON.stringify(proj, null, 2), "utf-8"); fs.writeFileSync(path.join(pp, "chapters.json"), JSON.stringify({ chapters: [] }, null, 2), "utf-8"); fs.mkdirSync(path.join(pp, "chapters"), { recursive: true }); fs.mkdirSync(path.join(pp, "cards"), { recursive: true }); return c.json({ ok: true, project: proj }); } catch (e) { return c.json({ error: e.message }, 500); } });
   app.delete("/api/project/:id", async c => { const id = safeProjectId(c.req.param("id")); if (!id) return c.json({ error: "bad id" }, 400); try { const { join } = await import("node:path"); const pp = join(dd, "projects", id); if (fs.existsSync(pp)) fs.rmSync(pp, { recursive: true, force: true }); return c.json({ ok: true }); } catch (e) { return c.json({ error: e.message }, 500); } });
-  app.get("/api/project/:id/chapters", async c => { const id = safeProjectId(c.req.param("id")); if (!id) return c.json({ error: "bad id" }, 400); try { const fs = await import("node:fs"), path = await import("node:path"); const p2 = path.join(dd, "projects", id), ip = path.join(p2, "chapters.json"); if (!fs.existsSync(ip)) return c.json([]); const idx = JSON.parse(fs.readFileSync(ip, "utf-8")); for (const ch of (idx.chapters || [])) { const cp = path.join(p2, "chapters", ch.id + ".md"); ch.body = fs.existsSync(cp) ? fs.readFileSync(cp, "utf-8") : ""; } return c.json(idx.chapters || []); } catch (e) { return c.json({ error: e.message }, 500); } });
+  app.get("/api/project/:id/chapters", async c => {
+    const id = safeProjectId(c.req.param("id"));
+    if (!id) return c.json({ error: "bad id" }, 400);
+    try {
+      const fs = await import("node:fs"), path = await import("node:path");
+      const p2 = path.join(dd, "projects", id), ip = path.join(p2, "chapters.json");
+      if (!fs.existsSync(ip)) return c.json([]);
+      const idx = JSON.parse(fs.readFileSync(ip, "utf-8"));
+      for (const ch of (idx.chapters || [])) {
+        const cp = path.join(p2, "chapters", ch.id + ".md");
+        ch.body = fs.existsSync(cp) ? fs.readFileSync(cp, "utf-8") : "";
+        // Inline cover image as base64 data URL to avoid asset route
+        if (ch.body) {
+          var fmMatch = ch.body.match(/^---[\s\S]*?---/);
+          if (fmMatch) {
+            var imgMatch = fmMatch[0].match(/image:\s*["']?([^\n'"]+)["']?/);
+            if (imgMatch) {
+              var coverPath = imgMatch[1].trim();
+              var coverFull = path.join(p2, "chapters", coverPath);
+              // Normalize to forward slashes for Bun audit
+              var normCover = coverFull.replace(/\\/g, '/');
+              if (fs.existsSync(normCover)) {
+                var coverData = fs.readFileSync(normCover);
+                var ext = coverPath.split(".").pop().toLowerCase();
+                var mime = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" }[ext] || "image/png";
+                var b64 = coverData.toString("base64");
+                var dataUrl = "data:" + mime + ";base64," + b64;
+                // Replace front matter image with inline data URL
+                ch.body = ch.body.replace(
+                  /(image:\s*["']?)([^\n'"]+)(["']?)/,
+                  '$1' + dataUrl + '$3'
+                );
+              }
+            }
+          }
+        }
+      }
+      return c.json(idx.chapters || []);
+    } catch (e) { return c.json({ error: e.message }, 500); }
+  });
   app.post("/api/project/:id/chapters", async c => { const id = safeProjectId(c.req.param("id")); if (!id) return c.json({ error: "bad id" }, 400); try { const fs = await import("node:fs"), path = await import("node:path"); const b = await c.req.json(); const p2 = path.join(dd, "projects", id), ip = path.join(p2, "chapters.json"); const idx = fs.existsSync(ip) ? JSON.parse(fs.readFileSync(ip, "utf-8")) : { chapters: [] }; const now = new Date().toISOString(); if (b && b._delete && b.id) { const di = idx.chapters.findIndex(c2 => c2.id === b.id); if (di >= 0) { idx.chapters.splice(di, 1); try { fs.unlinkSync(path.join(p2, "chapters", b.id + ".md")); } catch(e) {} } } else if (b && b.id) { const i = idx.chapters.findIndex(c2 => c2.id === b.id); if (i >= 0) { idx.chapters[i].title = b.title || idx.chapters[i].title; idx.chapters[i].wordCount = (b.content || "").replace(/\s/g, "").length; idx.chapters[i].updated_at = now; if (b.volume !== undefined) idx.chapters[i].volume = b.volume || null; if (b.status) idx.chapters[i].status = b.status; if (b.content) fs.writeFileSync(path.join(p2, "chapters", b.id + ".md"), b.content, "utf-8"); } } else if (b) { const nid = "ch_" + String(idx.chapters.length + 1).padStart(2, "0"); fs.mkdirSync(path.join(p2, "chapters"), { recursive: true }); fs.writeFileSync(path.join(p2, "chapters", nid + ".md"), b.content || "", "utf-8"); idx.chapters.push({ id: nid, title: b.title || "new", order: idx.chapters.length + 1, status: "draft", wordCount: (b.content || "").replace(/\s/g, "").length, hooks: [], created_at: now, updated_at: now }); } fs.writeFileSync(ip, JSON.stringify(idx, null, 2), "utf-8"); return c.json({ ok: true }); } catch (e) { return c.json({ error: e.message }, 500); } });
   app.get("/api/project/:id/cards", async c => { const id = safeProjectId(c.req.param("id")); if (!id) return c.json({ error: "bad id" }, 400); try { const fs = await import("node:fs"), path = await import("node:path"); const cd = path.join(dd, "projects", id, "cards"); const r = []; for (const t of ["characters", "world", "style"]) { const fp = path.join(cd, t + ".json"); if (fs.existsSync(fp)) { const d = JSON.parse(fs.readFileSync(fp, "utf-8")); if (d.cards) r.push(...d.cards); } } return c.json(r); } catch (e) { return c.json({ error: e.message }, 500); } });
   app.get("/api/project/:id/card-meta", async c => { const id = safeProjectId(c.req.param("id")); if (!id) return c.json({ error: "bad id" }, 400); try { const cid = c.req.query("cid"); const fs = await import("node:fs"), path = await import("node:path"); const cd = path.join(dd, "projects", id, "cards"); for (const t of ["characters", "world", "style"]) { const fp = path.join(cd, t + ".json"); if (!fs.existsSync(fp)) continue; const d = JSON.parse(fs.readFileSync(fp, "utf-8")); if (d.cards) { const idx = d.cards.findIndex(c2 => c2.id === cid); if (idx >= 0) return c.json({ type: t, file: fp }); } } return c.json({ type: null }); } catch (e) { return c.json({ error: e.message }, 500); } });
@@ -453,14 +492,14 @@ export default function (app, ctx) {
         try {
           for (var i = 0; i < 60; i++) {
             await new Promise(function(r) { setTimeout(r, 2000); });
-            var st = await ctx.bus.request('media-gen:get-task', { taskId: result.taskId });
+            var st = await ctx.bus.request('media-gen:get-task', { taskId: result.tasks[0].taskId });
             if (!st || !st.task) continue;
             var tk = st.task;
-            if (tk.status === 'completed' && tk.files && tk.files.length > 0) {
+            if ((tk.status === 'done' || tk.status === 'completed') && tk.files && tk.files.length > 0) {
               var imgFile = tk.files[0];
               var imgName = typeof imgFile === 'string' ? imgFile : (imgFile.name || imgFile.path);
               // 从 image-gen generated 目录复制到章节目录/文本附件
-              var generatedDir = path.join(dd, 'image-gen', 'generated');
+              var generatedDir = 'W:\\Games\\Hanako\\.hanako\\plugin-data\\image-gen\\generated';
               var srcFile = path.join(generatedDir, imgName);
               var assetDir = path.join(chDir, '文本附件');
               fs.mkdirSync(assetDir, { recursive: true });
@@ -472,9 +511,13 @@ export default function (app, ctx) {
                 dstFile = imgName;
               }
               var imgRelPath = '文本附件/' + imgName;
-              // 写入封面 YAML front matter
+              // 写入封面 YAML front matter（替换所有前导 front matter 块）
               var coverYaml = '---\ncover:\n  image: ' + imgRelPath + '\n---\n';
-              var newBody = coverYaml + chapterBody;
+              var newBody = chapterBody;
+              while (newBody.match(/^---[\s\S]*?---\s*/)) {
+                newBody = newBody.replace(/^---[\s\S]*?---\s*/, '');
+              }
+              newBody = coverYaml + newBody;
               fs.writeFileSync(chapterPath, newBody, 'utf-8');
               break;
             }
@@ -483,7 +526,7 @@ export default function (app, ctx) {
         } catch(e) { /* 静默忽略后台写入错误 */ }
       })();
 
-      return c.json({ ok: true, taskId: result.taskId });
+      return c.json({ ok: true, taskId: result.tasks[0].taskId });
     } catch(e) { return c.json({ error: e.message }, 500); }
   });
 
@@ -493,16 +536,89 @@ export default function (app, ctx) {
     if (!id) return c.json({ error: "bad id" }, 400);
     const taskId = c.req.param("taskId");
     try {
-      // 从生图插件 store 查询任务状态
       var taskResult = await ctx.bus.request('media-gen:get-task', { taskId: taskId });
       if (!taskResult || !taskResult.task) return c.json({ status: 'not_found' });
       var task = taskResult.task;
-      var result = {
-        status: task.status, // pending, completed, failed
+      return c.json({
+        status: task.status,
         files: task.files || [],
         failReason: task.failReason || null,
-      };
-      return c.json(result);
+      });
+    } catch(e) { return c.json({ error: e.message }, 500); }
+  });
+
+  // --- 单章路由（所有图片内联为 base64）---
+  app.get("/api/project/:id/chapter/:chapterId", async c => {
+    const id = safeProjectId(c.req.param("id"));
+    const chId = c.req.param("chapterId");
+    if (!id || !chId) return c.json({ error: "bad id" }, 400);
+    try {
+      const fs = await import("node:fs"), path = await import("node:path");
+      const cp = path.join(dd, "projects", id, "chapters", chId + ".md");
+      if (!fs.existsSync(cp)) return c.json({ error: "not found" }, 404);
+      var body = fs.readFileSync(cp, "utf-8");
+      // Inline ALL image: xxx references (front matter cover)
+      body = body.replace(/image:\s*["']?([^\n'"\\]+)["']?/g, function(fullMatch, rawPath) {
+        var p = rawPath.trim();
+        if (p.startsWith("data:")) return fullMatch;
+        if (!p.includes("文本附件")) return fullMatch;
+        var full = path.join(dd, "projects", id, "chapters", p);
+        var norm = full.replace(/\\/g, "/");
+        if (fs.existsSync(norm)) {
+          try {
+            var data = fs.readFileSync(norm);
+            var ext = p.split(".").pop().toLowerCase();
+            var mime = {png:"image/png",jpg:"image/jpeg",jpeg:"image/jpeg",gif:"image/gif",webp:"image/webp"}[ext] || "image/png";
+            return "image: " + "data:" + mime + ";base64," + data.toString("base64");
+          } catch(e) {}
+        }
+        return fullMatch;
+      });
+      // Inline all ![alt](path) references (chapter body images)
+      body = body.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(match, alt, p1) {
+        if (p1.startsWith("data:")) return match;
+        if (!p1.includes("文本附件")) return match;
+        var full = path.join(dd, "projects", id, "chapters", p1);
+        var norm = full.replace(/\\/g, "/");
+        if (fs.existsSync(norm)) {
+          try {
+            var data = fs.readFileSync(norm);
+            var ext = p1.split(".").pop().toLowerCase();
+            var mime = {png:"image/png",jpg:"image/jpeg",jpeg:"image/jpeg",gif:"image/gif",webp:"image/webp"}[ext] || "image/png";
+            return "![" + alt + "](data:" + mime + ";base64," + data.toString("base64") + ")";
+          } catch(e) {}
+        }
+        return match;
+      });
+      return c.json({ body: body });
+    } catch(e) { return c.json({ error: e.message }, 500); }
+  });
+
+// --- 附件图片访问路由 ---
+  app.get("/api/project/:id/asset/*", async c => {
+    const id = safeProjectId(c.req.param("id"));
+    if (!id) return c.json({ error: "bad id" }, 400);
+    try {
+      const assetPath = c.req.param("*");
+      // Bun Windows audit check uses POSIX paths. Use path.posix.join.
+      const pos = await import("node:path/posix");
+      const ddPosix = dd.replace(/\\/g, '/');
+      const fullPath = pos.join(ddPosix, 'projects', id, 'chapters', assetPath);
+      
+      if (!fs.existsSync(fullPath)) {
+        return c.json({ error: "not found", ddPosix: ddPosix, fullPath: fullPath }, 404);
+      }
+      
+      const ext = assetPath.split(".").pop().toLowerCase();
+      const contentType = {
+        png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+        gif: "image/gif", webp: "image/webp", svg: "image/svg+xml"
+      }[ext] || "application/octet-stream";
+      const buffer = await fs.promises.readFile(fullPath);
+      return c.body(buffer, 200, {
+        "Content-Type": contentType,
+        "Cache-Control": "public, max-age=31536000"
+      });
     } catch(e) { return c.json({ error: e.message }, 500); }
   });
 
@@ -538,13 +654,7 @@ export default function (app, ctx) {
       var filePath = path.join(assetDir, safeName);
       fs.writeFileSync(filePath, imgBuf);
       var imgRelPath = '文本附件/' + safeName;
-      // 更新章节 body：追加图片引用
-      var chMdPath = path.join(chDir, chapterId + '.md');
-      if (fs.existsSync(chMdPath)) {
-        var existingBody = fs.readFileSync(chMdPath, 'utf-8');
-        var imgMd = '\n![封面](' + imgRelPath + ')\n';
-        fs.writeFileSync(chMdPath, existingBody + imgMd, 'utf-8');
-      }
+      // 只保存图片文件，不在 .md 里追加引用（前端在编辑区插入）
       return c.json({ ok: true, imgPath: imgRelPath, fileName: safeName });
     } catch(e) { return c.json({ error: e.message }, 500); }
   });

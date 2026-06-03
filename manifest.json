@@ -42,7 +42,8 @@
       { "source": "tools/structure.js" },
       { "source": "tools/knowledge.js" },
       { "source": "tools/graph.js" },
-      { "source": "tools/diff.js" }
+      { "source": "tools/diff.js" },
+      { "source": "tools/get-asset.js" }
     ],
     "page": {
       "title": { "zh": "墨述", "en": "Ink Narrative" },

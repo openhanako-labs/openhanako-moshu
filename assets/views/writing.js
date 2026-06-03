@@ -310,10 +310,19 @@ function openChapter(id) {
   }
 }
 
-function renderChapterContent() {
+async function renderChapterContent() {
   var ch = _currentChapter;
   if (!ch) return;
   var body = ch.body || '';
+
+  // Non-editing mode: fetch fresh body with all images inlined as base64
+  if (!_editing) {
+    try {
+      var rc = await fetch(tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/chapter/' + encodeURIComponent(ch.id)));
+      var rd = await rc.json();
+      if (rd.body) body = rd.body;
+    } catch(e) {}
+  }
 
   var h = '';
   h += '<div class="panel-header">';
@@ -607,7 +616,37 @@ function searchChapterResult(chId, kw) {
 // ── Markdown 渲染（预览模式）──
 function renderMarkdown(body) {
   if (!body) return '';
-  var html = esc(body);
+  console.log('[renderMarkdown] bodyStart:', body.substring(0, 100), 'proj:', _currentProject ? _currentProject.id : 'NULL');
+  
+  // 提取并渲染 YAML front matter 里的 cover 图片
+  var coverPath = null;
+  var bodyText = body;
+  // 剥离所有前导的 front matter 块（---...---），取最后一个有 cover.image 的
+  var fmRegex = /^---[\s\S]*?---\s*/;
+  var match;
+  var fmCount = 0;
+  while ((match = bodyText.match(fmRegex)) !== null) {
+    fmCount++;
+    var allFm = match[0];
+    var imgMatch = allFm.match(/image:\s*["']?([^\n'"]+)["']?/);
+    if (imgMatch) coverPath = imgMatch[1].trim();
+    bodyText = bodyText.substring(match[0].length);
+    if (fmCount > 10) break;
+  }
+  console.log('[renderMarkdown] fmBlocks:', fmCount, 'coverPath:', coverPath, 'remainingStart:', bodyText.substring(0, 50));
+  
+  var coverImgHtml = '';
+  if (coverPath && _currentProject) {
+    // If already a data URL (inline from backend), use directly
+    var coverUrl = coverPath;
+    if (!coverPath.startsWith('data:')) {
+      coverUrl = tu(A + "/api/project/" + encodeURIComponent(_currentProject.id) + "/asset/" + encodeURIComponent(coverPath));
+    }
+    coverImgHtml = '<img src="' + coverUrl + '" style="max-width:100%;height:auto;border-radius:var(--radius);margin:8px 0;display:block" alt="封面">\n';
+    console.log('[renderMarkdown] coverImg built');
+  }
+  
+  html = esc(bodyText);
   // comments: /* text */ → gray italic
   html = html.replace(/\/\*\s+(.+?)\s+\*\//g, '<span style="color:#999;font-style:italic">$1</span>');
   // highlight: ===text===
@@ -616,6 +655,19 @@ function renderMarkdown(body) {
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   // italic: *text*
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // images: ![alt](url)
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(match, alt, p1) {
+    // If it's a data URL, use directly; otherwise build full asset URL
+    var imgSrc = p1;
+    var isRemote = false;
+    if (_currentProject && !p1.startsWith('data:')) {
+      imgSrc = tu(A + "/api/project/" + encodeURIComponent(_currentProject.id) + "/asset/" + encodeURIComponent(p1));
+      isRemote = true;
+    }
+    var imgId = 'img_' + Math.random().toString(36).substr(2, 9);
+    // data-imgpath always set (for both remote and inline data URL images)
+    return '<div style="position:relative;display:inline-block"><img id="' + imgId + '" data-imgpath="' + p1 + '" data-imgtype="' + (p1.startsWith('data:') ? 'inline' : 'server') + '" data-img-alt="' + esc(alt) + '" src="' + imgSrc + '" style="max-width:100%;height:auto;border-radius:var(--radius);margin:8px 0;display:block;cursor:pointer" alt="' + esc(alt) + '"></div>';
+  });
   // links: [text](url)
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color:#2F6FDB;text-decoration:underline">$1</a>');
   // headings: # ... at start of line
@@ -624,7 +676,9 @@ function renderMarkdown(body) {
   html = html.replace(/^# (.+)$/gm, '<h2 style="font-size:19px;margin:20px 0 10px;color:var(--text);border-bottom:1px solid var(--border);padding-bottom:4px">$1</h2>');
   // auto-link names
   html = autoLinkMarkdown(html);
-  return html;
+  
+  // 返回：封面图 + 正文
+  return coverImgHtml + html;
 }
 
 function autoLinkMarkdown(html) {
@@ -1696,6 +1750,7 @@ async function doGenerateCover() {
     if (!result.ok) { toast('❌ ' + (result.error || '生图失败')); statusEl.textContent = ''; return; }
 
     var taskId = result.taskId;
+    if (!taskId) { statusEl.textContent = '❌ 后端未返回 taskId'; toast('❌ taskId 为空'); return; }
     statusEl.textContent = '⏳ 生成中（约30秒）...';
     toast('⏳ 图片生成中，请稍后');
 
@@ -1706,7 +1761,7 @@ async function doGenerateCover() {
         try {
           var checkResp = await fetch(tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/generate-cover/status/' + encodeURIComponent(taskId)));
           var checkResult = await checkResp.json();
-          if (checkResult.status === 'completed' && checkResult.files && checkResult.files.length > 0) {
+          if ((checkResult.status === 'done' || checkResult.status === 'completed') && checkResult.files && checkResult.files.length > 0) {
             statusEl.textContent = '✅ 完成！';
             toast('✅ 配图已生成！请在生图面板查看，或让我写入章节封面');
             _showImageGen = false;
@@ -1738,8 +1793,8 @@ async function doGenerateCover() {
 // ═══════════════════════════════════
 
 async function insertImageToChapter() {
-  if (!_currentProject) { toast("? 请先选择项目"); return; }
-  if (!_currentChapter) { toast("? 请先选择章节"); return; }
+  if (!_currentProject) { toast("✓ 请先选择项目"); return; }
+  if (!_currentChapter) { toast("✓ 请先选择章节"); return; }
   var input = document.createElement("input");
   input.type = "file";
   input.accept = "image/*";
@@ -1749,7 +1804,7 @@ async function insertImageToChapter() {
     var reader = new FileReader();
     reader.onload = async function(ev) {
       var base64 = ev.target.result;
-      toast("? 正在上传并插入图片...");
+      toast("✓ 正在上传并插入图片...");
       try {
         var resp = await fetch(tu(A + "/api/project/" + encodeURIComponent(_currentProject.id) + "/insert-image"), {
           method: "POST",
@@ -1761,7 +1816,8 @@ async function insertImageToChapter() {
         var rc = await fetch(tu(A + "/api/project/" + encodeURIComponent(_currentProject.id) + "/chapters"));
         _chapters = await rc.json();
         _currentChapter = _chapters.find(function(c) { return c.id === _currentChapter.id; });
-        var imgMd = "\n![封面](" + data.imgPath + ")\n";
+        // Use data URL directly (avoid asset route which is 403 on Bun)
+        var imgMd = "\n![封面](" + base64 + ")\n";
         var ta = q("chb");
         if (ta) {
           var pos = ta.selectionStart || ta.value.length;
@@ -1772,10 +1828,142 @@ async function insertImageToChapter() {
           ta.selectionStart = ta.selectionEnd = pos + imgMd.length;
           _draftDirty = true;
         }
-        toast("? 图片插入成功");
-      } catch(ert) { toast("? 插入失败: " + ert.message); }
+        toast("✓ 图片插入成功");
+      } catch(ert) { toast("✓ 插入失败: " + ert.message); }
     };
     reader.readAsDataURL(file);
   };
   input.click();
 }
+
+//  删除图片
+async function deleteImageFromChapter(imgPath, imgType, imgAlt) {
+  if (!_currentProject || !_currentChapter) return;
+  // Custom confirm (document is sandboxed, browser confirm() is blocked)
+  var confirmed = await new Promise(function(resolve) {
+    var overlay = document.createElement('div');
+    overlay.id = 'custom-confirm-overlay';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center';
+    var box = document.createElement('div');
+    box.style.cssText = 'background:#2a2a2a;color:#eee;padding:20px 28px;border-radius:12px;font-size:14px;box-shadow:0 4px 24px rgba(0,0,0,0.5);text-align:center';
+    box.innerHTML = '<div style="margin-bottom:16px">🗑 删除这张图片？</div><div style="display:flex;gap:10px;justify-content:center">';
+    var btnOk = document.createElement('button');
+    btnOk.textContent = '删除';
+    btnOk.style.cssText = 'padding:6px 18px;background:#e74c3c;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px';
+    btnOk.onclick = function() { overlay.remove(); resolve(true); };
+    var btnCancel = document.createElement('button');
+    btnCancel.textContent = '取消';
+    btnCancel.style.cssText = 'padding:6px 18px;background:#555;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px';
+    btnCancel.onclick = function() { overlay.remove(); resolve(false); };
+    box.innerHTML += '<button onclick="this.parentElement.parentElement.remove();__confirmResolve(false)">取消</button>'; // fallback
+    box.innerHTML = '<div style="margin-bottom:16px">🗑 删除这张图片？</div><div style="display:flex;gap:10px;justify-content:center"><button id="confirm-ok" style="padding:6px 18px;background:#e74c3c;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">删除</button><button id="confirm-cancel" style="padding:6px 18px;background:#555;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">取消</button></div>';
+    box.querySelector('#confirm-ok').onclick = function() { overlay.remove(); resolve(true); };
+    box.querySelector('#confirm-cancel').onclick = function() { overlay.remove(); resolve(false); };
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  });
+  if (!confirmed) return;
+  try {
+    // Only delete server file if type is server
+    if (imgType === "server") {
+      await fetch(tu(A + "/api/project/" + encodeURIComponent(_currentProject.id) + "/delete-image"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chapterId: _currentChapter.id, imgPath: imgPath })
+      });
+    }
+    // Remove from editor: find the ![...] line matching this image
+    var ta = q("chb");
+    if (ta) {
+      var lines = ta.value.split("\n");
+      var newLines = [];
+      var removed = false;
+      for (var i = 0; i < lines.length; i++) {
+        if (!removed && lines[i].match(/!\[[^\]]*\]\(/)) {
+          // For data URLs, match by alt text
+          if (imgType === 'inline' && imgAlt) {
+            if (lines[i].match(/!\[([^\]]*)\]\(/) && lines[i].indexOf('![' + imgAlt + '](') === 0) {
+              removed = true;
+              continue;
+            }
+          } else if (imgType === 'inline') {
+            // Try matching by looking for ![...] line (remove first one found)
+            removed = true;
+            continue;
+          } else if (lines[i].includes(imgPath)) {
+            removed = true;
+            continue;
+          }
+        }
+        newLines.push(lines[i]);
+      }
+      ta.value = newLines.join("\n");
+      _draftDirty = true;
+      toast("✓ 图片已删除");
+    } else {
+      // If not in editor, just delete the server file
+      if (imgType === "server") {
+        try {
+          await fetch(tu(A + "/api/project/" + encodeURIComponent(_currentProject.id) + "/delete-image"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chapterId: _currentChapter.id, imgPath: imgPath })
+          });
+        } catch(e) {}
+      }
+      toast("✓ 图片已删除");
+    }
+    // Refresh display
+    await renderChapterContent();
+  } catch(e) { toast("✓ 删除失败: " + e.message); }
+}
+
+// ── 右键菜单删除图片 ──
+function initImageContextMenu() {
+  // Use event delegation on main-panel
+  var mainPanel = document.getElementById('main-panel');
+  if (!mainPanel) return;
+  
+  mainPanel.addEventListener('contextmenu', function(e) {
+    var img = e.target.closest('img[data-imgpath]');
+    if (!img) return;
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Remove old menu if exists
+    var old = document.getElementById('img-context-menu');
+    if (old) old.remove();
+    
+    var path = img.getAttribute('data-imgpath');
+    var type = img.getAttribute('data-imgtype');
+    var alt = img.getAttribute('data-img-alt') || '';
+    
+    var menu = document.createElement('div');
+    menu.id = 'img-context-menu';
+    menu.style.cssText = 'position:fixed;background:#2a2a2a;color:#eee;padding:6px 0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.4);z-index:9999;min-width:120px;font-size:13px';
+    
+    var x = e.clientX > window.innerWidth - 130 ? e.clientX - 125 : e.clientX + 10;
+    var y = e.clientY > window.innerHeight - 50 ? e.clientY - 45 : e.clientY + 10;
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+    
+    // Show delete for server images, or inline images (data URLs from editor)
+    var showDelete = type === 'server' || type === 'inline';
+    if (showDelete) {
+      var deleteItem = document.createElement('div');
+      deleteItem.style.cssText = 'padding:8px 16px;cursor:pointer;color:#ff6b6b;display:flex;align-items:center;gap:8px';
+      deleteItem.textContent = '🗑 删除图片';
+      deleteItem.onmouseenter = function() { this.style.background = 'rgba(255,107,107,0.15)'; };
+      deleteItem.onmouseleave = function() { this.style.background = 'transparent'; };
+      deleteItem.onclick = function(ev) { ev.stopPropagation(); deleteImageFromChapter(path, type, alt); removeMenu(); };
+      menu.appendChild(deleteItem);
+    }
+    
+    var removeMenu = function() { if (menu.parentNode) menu.remove(); };
+    setTimeout(function() { document.addEventListener('click', removeMenu, { once: true }); }, 0);
+    document.body.appendChild(menu);
+  });
+}
+
+// 初始化
+initImageContextMenu();
