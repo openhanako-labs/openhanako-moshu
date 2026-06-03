@@ -1920,9 +1920,13 @@ async function deleteImageFromChapter(imgPath, imgType, imgAlt) {
 
 // ── 右键菜单删除图片 ──
 function initImageContextMenu() {
-  // Use event delegation on main-panel
+  // main-panel may not exist yet if writing.js loaded before app.js init
   var mainPanel = document.getElementById('main-panel');
-  if (!mainPanel) { console.warn('[img-ctx] main-panel not found'); return; }
+  if (!mainPanel) {
+    // Retry until main-panel is rendered (Hana creates DOM after JS loads)
+    setTimeout(initImageContextMenu, 100);
+    return;
+  }
   console.log('[img-ctx] bound to main-panel, children:', mainPanel.childElementCount);
   
   mainPanel.addEventListener('contextmenu', function(e) {
@@ -1936,9 +1940,9 @@ function initImageContextMenu() {
         break;
       }
     }
-    if (!img) {
+    if (!img) { 
       console.log('[img-ctx] no img found, target:', e.target.tagName, e.target.className);
-      return;
+      return; 
     }
     console.log('[img-ctx] img found:', img.getAttribute('data-imgpath').substring(0,50), 'type:', img.getAttribute('data-imgtype'));
     e.preventDefault();
