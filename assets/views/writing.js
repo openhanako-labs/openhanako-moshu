@@ -1922,11 +1922,25 @@ async function deleteImageFromChapter(imgPath, imgType, imgAlt) {
 function initImageContextMenu() {
   // Use event delegation on main-panel
   var mainPanel = document.getElementById('main-panel');
-  if (!mainPanel) return;
+  if (!mainPanel) { console.warn('[img-ctx] main-panel not found'); return; }
+  console.log('[img-ctx] bound to main-panel, children:', mainPanel.childElementCount);
   
   mainPanel.addEventListener('contextmenu', function(e) {
-    var img = e.target.closest('img[data-imgpath]');
-    if (!img) return;
+    // Use composedPath to find the actual clicked element
+    var path = e.composedPath ? e.composedPath() : [e.target];
+    var img = null;
+    for (var i = 0; i < path.length; i++) {
+      var el = path[i];
+      if (el.tagName === 'IMG' && el.getAttribute('data-imgpath')) {
+        img = el;
+        break;
+      }
+    }
+    if (!img) {
+      console.log('[img-ctx] no img found, target:', e.target.tagName, e.target.className);
+      return;
+    }
+    console.log('[img-ctx] img found:', img.getAttribute('data-imgpath').substring(0,50), 'type:', img.getAttribute('data-imgtype'));
     e.preventDefault();
     e.stopPropagation();
     
