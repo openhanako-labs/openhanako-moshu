@@ -115,6 +115,7 @@ function renderMainPanel() {
   h += '<button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="exportProject(\'txt\')" title="导出 TXT">📄 TXT</button>';
   h += '<button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="exportProject(\'epub\')" title="导出 EPUB">📖 EPUB</button>';
   h += '<button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="showImageGenPanel()" title="为章节生成配图">🎨 生图</button>';
+  h += '<button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="showCinematicPanel()" title="电影化小说写作">🎬 电影化</button>';
   h += '</div>';
   if (_showImageGen) {
     h += '<div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--rm);padding:12px;margin:8px 0">';
@@ -1975,3 +1976,84 @@ function initImageContextMenu() {
 
 // 初始化
 initImageContextMenu();
+
+// ── 电影化小说写作面板 ──
+var _cinematicChapters = [];
+
+function showCinematicPanel() {
+  if (!_currentProject) { toast('⚠️ 请先选择一个项目'); return; }
+  var h = '<div class="card-form-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.3);backdrop-filter:blur(2px);z-index:200;display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)closeCinematicPanel()">';
+  h += '<div class="card-form-panel" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--rm);width:480px;max-height:80vh;overflow-y:auto;box-shadow:0 12px 40px rgba(0,0,0,.15)" onclick="event.stopPropagation()">';
+  h += '<div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">';
+  h += '<span style="font-weight:600;font-size:15px">🎬 电影化小说写作</span>';
+  h += '<button style="background:none;border:none;font-size:18px;color:var(--text-muted);cursor:pointer" onclick="closeCinematicPanel()">✕</button>';
+  h += '</div>';
+  h += '<div style="padding:16px 20px">';
+  h += '<div style="font-size:11px;color:var(--text-sub);margin-bottom:12px">用电影镜头语言（全景/特写/蒙太奇）改写章节</div>';
+  // 章节选择
+  h += '<div style="margin-bottom:12px"><label style="font-size:11px;color:var(--text-sub);display:block;margin-bottom:4px">章节</label>';
+  h += '<select id="cinCh" style="width:100%;padding:5px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-panel);color:var(--text);font-size:12px;font-family:var(--font-ui);outline:none">';
+  h += '<option value="">— 选择章节 —</option>';
+  if (_chapters) _chapters.forEach(function(ch){ h += '<option value="'+ch.id+'">'+esc(ch.title)+' ('+(ch.status||'draft')+', '+(ch.wordCount||0)+'字)</option>'; });
+  h += '</select></div>';
+  // 改写力度
+  h += '<div style="margin-bottom:12px"><label style="font-size:11px;color:var(--text-sub);display:block;margin-bottom:6px">改写力度</label>';
+  h += '<div style="display:flex;gap:6px">';
+  h += '<label class="type-chip"><input type="radio" name="cinDepth" value="light" checked><span>✏️ 轻度</span></label>';
+  h += '<label class="type-chip"><input type="radio" name="cinDepth" value="medium"><span>🖊️ 中度</span></label>';
+  h += '<label class="type-chip"><input type="radio" name="cinDepth" value="heavy"><span>🎬 重度</span></label>';
+  h += '</div></div>';
+  // 说明
+  h += '<div style="font-size:10px;color:var(--text-muted);line-height:1.6;margin:8px 0 12px;padding:8px;background:var(--bg-panel);border-radius:var(--radius);border:1px solid var(--border-light)">';
+  h += '流程：镜头分析 → 电影化重写 → 逐段对比输出。不改情节、不改变人称，仅转换叙事风格。';
+  h += '<br><br><b style="color:var(--text-sub)">⚡ 使用方式：</b>点击「开始改写」后，回到聊天窗口对我说 <b>"继续"</b>，我会自动读取任务并执行。';
+  h += '</div>';
+  // 按钮
+  h += '<div style="display:flex;gap:8px;justify-content:flex-end">';
+  h += '<button class="btn" onclick="closeCinematicPanel()">取消</button>';
+  h += '<button class="btn btn-primary" id="cinBtn" onclick="doCinematicRewrite()">🎬 开始改写</button>';
+  h += '</div>';
+  h += '</div></div></div>';
+  var div = document.createElement('div');
+  div.id = 'cinematicRoot';
+  div.innerHTML = h;
+  document.body.appendChild(div.firstElementChild);
+}
+
+function closeCinematicPanel() {
+  var el = document.querySelector('#cinematicRoot');
+  if (el) el.remove();
+  var btn = document.getElementById('cinBtn');
+  if (btn) { btn.textContent = '🎬 开始改写'; btn.disabled = false; }
+}
+
+async function doCinematicRewrite() {
+  var ch = document.getElementById('cinCh');
+  var chId = ch ? ch.value : '';
+  if (!chId) { toast('⚠️ 请选择章节'); return; }
+  var radios = document.querySelectorAll('input[name="cinDepth"]:checked');
+  var depth = radios.length ? radios[0].value : 'light';
+  var btn = document.getElementById('cinBtn');
+  btn.textContent = '⏳ 发送中...';
+  btn.disabled = true;
+  try {
+      var r = await fetch(tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/cinematic'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapterId: chId, depth: depth })
+    });
+    var j = await r.json();
+    if (j.ok) {
+      toast('✅ 已发送！请在聊天窗口对我说“开始电影化改写”或“继续”，我会读取任务并执行');
+      closeCinematicPanel();
+    } else {
+      toast('❌ 失败: ' + (j.error || '未知错误'));
+      btn.textContent = '🎬 开始改写';
+      btn.disabled = false;
+    }
+  } catch(e) {
+    toast('❌ 请求失败: ' + e.message);
+    btn.textContent = '🎬 开始改写';
+    btn.disabled = false;
+  }
+}

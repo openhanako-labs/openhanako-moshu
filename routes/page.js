@@ -677,4 +677,70 @@ export default function (app, ctx) {
       return c.json({ ok: true });
     } catch(e) { return c.json({ error: e.message }, 500); }
   });
+
+  // ── 电影化小说写作 ──
+  app.post('/api/project/:id/cinematic', async c => {
+    const id = safeProjectId(c.req.param('id'));
+    if (!id) return c.json({ error: 'bad id' }, 400);
+    try {
+      const { join } = await import('node:path');
+      const body = await c.req.json();
+      var chapterId = body.chapterId || '';
+      var depth = body.depth || 'light';
+      const { createHash } = await import('node:crypto');
+      const taskId = 'cin_' + id + '_' + chapterId + '_' + createHash('md5').update(Date.now().toString()).digest('hex').slice(0, 8);
+
+      // 读取章节信息
+      const chaptersPath = join(dd, 'projects', id, 'chapters.json');
+      if (!fs.existsSync(chaptersPath)) return c.json({ error: 'project not found' }, 404);
+      var chaptersIdx = JSON.parse(fs.readFileSync(chaptersPath, 'utf-8'));
+      var chapter = (chaptersIdx.chapters || []).find(function(ch){ return ch.id === chapterId; });
+      if (!chapter) return c.json({ error: 'chapter not found' }, 404);
+      var chapterBody = '';
+      var chapterPath = join(dd, 'projects', id, 'chapters', chapterId + '.md');
+      if (fs.existsSync(chapterPath)) chapterBody = fs.readFileSync(chapterPath, 'utf-8');
+
+      // 读取项目信息
+      var projInfo = { name: id, type: '' };
+      var projPath = join(dd, 'projects', id, 'project.json');
+      if (fs.existsSync(projPath)) {
+        var pj = JSON.parse(fs.readFileSync(projPath, 'utf-8'));
+        projInfo.name = pj.name || id;
+        projInfo.type = pj.type || '';
+      }
+
+      // 写入任务文件
+      const taskDir = join(dd, 'tasks');
+      fs.mkdirSync(taskDir, { recursive: true });
+      const taskFile = join(taskDir, taskId + '.json');
+      
+      // 提取章节正文（去掉 front matter）
+      var bodyText = chapterBody;
+      var fmMatch = bodyText.match(/^---[\s\S]*?---/);
+      if (fmMatch) bodyText = bodyText.substring(fmMatch[0].length);
+      // 截断到 2000 字
+      var summary = bodyText.length > 2000 ? bodyText.substring(0, 2000) + '...（已截断，Agent 需读原文）' : bodyText;
+
+      fs.writeFileSync(taskFile, JSON.stringify({
+        taskId: taskId,
+        type: 'cinematic-rewrite',
+        projectId: id,
+        projectName: projInfo.name,
+        projectType: projInfo.type,
+        chapterId: chapterId,
+        chapterTitle: chapter.title,
+        chapterWordCount: chapter.wordCount || 0,
+        depth: depth,
+        chapterSummary: summary,
+        status: 'pending',
+        createdAt: new Date().toISOString()
+      }, null, 2));
+
+      return c.json({
+        ok: true,
+        taskId: taskId,
+        instruction: '电影化改写指令已记录。请在聊天窗口说"开始电影化改写"或"继续"，我会自动读取任务并执行。'
+      });
+    } catch(e) { return c.json({ error: e.message }, 500); }
+  });
 }
