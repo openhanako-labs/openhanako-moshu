@@ -658,4 +658,23 @@ export default function (app, ctx) {
       return c.json({ ok: true, imgPath: imgRelPath, fileName: safeName });
     } catch(e) { return c.json({ error: e.message }, 500); }
   });
+
+  // --- 删除图片 ---
+  app.post('/api/project/:id/delete-image', async c => {
+    const id = safeProjectId(c.req.param('id'));
+    if (!id) return c.json({ error: 'bad id' }, 400);
+    try {
+      const body = await c.req.json();
+      var chapterId = body.chapterId || '';
+      var imgPath = body.imgPath || '';
+      if (!chapterId || !imgPath) return c.json({ ok: true });
+      const fs2 = await import('node:fs'), path2 = await import('node:path');
+      const filePath = path2.join(dd, 'projects', id, 'chapters', imgPath);
+      // 只删文件，不改 .md（前端会处理）
+      if (fs2.existsSync(filePath)) {
+        fs2.unlinkSync(filePath);
+      }
+      return c.json({ ok: true });
+    } catch(e) { return c.json({ error: e.message }, 500); }
+  });
 }

@@ -1930,56 +1930,46 @@ function initImageContextMenu() {
   console.log('[img-ctx] bound to main-panel, children:', mainPanel.childElementCount);
   
   mainPanel.addEventListener('contextmenu', function(e) {
-    // Use composedPath to find the actual clicked element
-    var path = e.composedPath ? e.composedPath() : [e.target];
-    var img = null;
-    for (var i = 0; i < path.length; i++) {
-      var el = path[i];
-      if (el.tagName === 'IMG' && el.getAttribute('data-imgpath')) {
-        img = el;
-        break;
-      }
-    }
-    if (!img) { 
-      console.log('[img-ctx] no img found, target:', e.target.tagName, e.target.className);
-      return; 
-    }
-    console.log('[img-ctx] img found:', img.getAttribute('data-imgpath').substring(0,50), 'type:', img.getAttribute('data-imgtype'));
-    e.preventDefault();
-    e.stopPropagation();
-    
-    // Remove old menu if exists
-    var old = document.getElementById('img-context-menu');
-    if (old) old.remove();
-    
-    var path = img.getAttribute('data-imgpath');
-    var type = img.getAttribute('data-imgtype');
-    var alt = img.getAttribute('data-img-alt') || '';
-    
-    var menu = document.createElement('div');
-    menu.id = 'img-context-menu';
-    menu.style.cssText = 'position:fixed;background:#2a2a2a;color:#eee;padding:6px 0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.4);z-index:9999;min-width:120px;font-size:13px';
-    
-    var x = e.clientX > window.innerWidth - 130 ? e.clientX - 125 : e.clientX + 10;
-    var y = e.clientY > window.innerHeight - 50 ? e.clientY - 45 : e.clientY + 10;
-    menu.style.left = x + 'px';
-    menu.style.top = y + 'px';
-    
-    // Show delete for server images, or inline images (data URLs from editor)
-    var showDelete = type === 'server' || type === 'inline';
-    if (showDelete) {
+    // Prevent Hana's default context menu on images
+    if (e.target.tagName === 'IMG') {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Get image info from src and alt
+      var src = e.target.src || '';
+      var alt = e.target.alt || '';
+      var isDataUrl = src.startsWith('data:');
+      
+      console.log('[img-ctx] img clicked:', { src: src.substring(0,80), alt: alt, isDataUrl: isDataUrl });
+      
+      // Build menu
+      var menu = document.createElement('div');
+      menu.id = 'img-context-menu';
+      menu.style.cssText = 'position:fixed;background:#2a2a2a;color:#eee;padding:6px 0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.4);z-index:9999;min-width:120px;font-size:13px';
+      
+      var x = e.clientX > window.innerWidth - 130 ? e.clientX - 125 : e.clientX + 10;
+      var y = e.clientY > window.innerHeight - 50 ? e.clientY - 45 : e.clientY + 10;
+      menu.style.left = x + 'px';
+      menu.style.top = y + 'px';
+      
+      // Show delete
       var deleteItem = document.createElement('div');
       deleteItem.style.cssText = 'padding:8px 16px;cursor:pointer;color:#ff6b6b;display:flex;align-items:center;gap:8px';
       deleteItem.textContent = '🗑 删除图片';
       deleteItem.onmouseenter = function() { this.style.background = 'rgba(255,107,107,0.15)'; };
       deleteItem.onmouseleave = function() { this.style.background = 'transparent'; };
-      deleteItem.onclick = function(ev) { ev.stopPropagation(); deleteImageFromChapter(path, type, alt); removeMenu(); };
+      deleteItem.onclick = function(ev) {
+        ev.stopPropagation(); 
+        deleteImageFromChapter(src, isDataUrl ? 'inline' : 'server', alt); 
+        removeMenu(); 
+      };
       menu.appendChild(deleteItem);
+      
+      var removeMenu = function() { if (menu.parentNode) menu.remove(); };
+      setTimeout(function() { document.addEventListener('click', removeMenu, { once: true }); }, 0);
+      document.body.appendChild(menu);
+      return;
     }
-    
-    var removeMenu = function() { if (menu.parentNode) menu.remove(); };
-    setTimeout(function() { document.addEventListener('click', removeMenu, { once: true }); }, 0);
-    document.body.appendChild(menu);
   });
 }
 
