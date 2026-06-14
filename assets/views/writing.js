@@ -377,7 +377,6 @@ async function renderChapterContent() {
     h += '<input class="editor-title-input" id="cht" value="' + esc(ch.title) + '" placeholder="章节标题">';
     // 编辑模式下剥离 frontmatter，只放正文到 textarea，避免 base64 等元数据膨胀
     var displayBody = stripFrontmatter(body);
-    console.log('[MoShu] edit mode: body.length=', body.length, 'displayBody.length=', displayBody.length, 'hasBase64=', body.includes('data:image'));
     h += '<textarea class="editor-textarea" id="chb" placeholder="开始写作..." oninput="_draftDirty=true">' + esc(displayBody) + '</textarea>';
     // 缓存完整原文（含 frontmatter）到 hidden div，供草稿恢复和保存时使用
     h += '<input type="hidden" id="chb_full" value="' + esc(body) + '">';
@@ -694,7 +693,7 @@ function renderMarkdown(body) {
     if (!coverPath.startsWith('data:')) {
       coverUrl = tu(A + "/api/project/" + encodeURIComponent(_currentProject.id) + "/asset/" + encodeURIComponent(coverPath));
     }
-    coverImgHtml = '<img src="' + coverUrl + '" style="max-width:100%;height:auto;border-radius:var(--radius);margin:8px 0;display:block;cursor:pointer" data-imgpath="' + esc(coverPath) + '" data-imgtype="' + (coverPath.startsWith('data:') ? 'inline' : 'server') + '" alt="封面">\n';
+    coverImgHtml = '<img src="' + coverUrl + '" style="max-width:100%;height:auto;border-radius:var(--radius);margin:8px 0;display:block;cursor:pointer" data-imgpath="' + esc(coverPath) + '" data-imgtype="' + (coverPath.startsWith('data:') ? 'inline' : 'server') + '" data-cover="true" alt="封面">\n';
     console.log('[renderMarkdown] coverImg built');
   }
   
@@ -1896,23 +1895,14 @@ async function insertImageToChapter() {
 //  删除图片
 async function deleteImageFromChapter(imgPath, imgType, imgAlt) {
   if (!_currentProject || !_currentChapter) return;
-  // Custom confirm (document is sandboxed, browser confirm() is blocked)
+  var isCover = false;
+  // Custom confirm
   var confirmed = await new Promise(function(resolve) {
     var overlay = document.createElement('div');
     overlay.id = 'custom-confirm-overlay';
     overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center';
     var box = document.createElement('div');
     box.style.cssText = 'background:#2a2a2a;color:#eee;padding:20px 28px;border-radius:12px;font-size:14px;box-shadow:0 4px 24px rgba(0,0,0,0.5);text-align:center';
-    box.innerHTML = '<div style="margin-bottom:16px">🗑 删除这张图片？</div><div style="display:flex;gap:10px;justify-content:center">';
-    var btnOk = document.createElement('button');
-    btnOk.textContent = '删除';
-    btnOk.style.cssText = 'padding:6px 18px;background:#e74c3c;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px';
-    btnOk.onclick = function() { overlay.remove(); resolve(true); };
-    var btnCancel = document.createElement('button');
-    btnCancel.textContent = '取消';
-    btnCancel.style.cssText = 'padding:6px 18px;background:#555;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px';
-    btnCancel.onclick = function() { overlay.remove(); resolve(false); };
-    box.innerHTML += '<button onclick="this.parentElement.parentElement.remove();__confirmResolve(false)">取消</button>'; // fallback
     box.innerHTML = '<div style="margin-bottom:16px">🗑 删除这张图片？</div><div style="display:flex;gap:10px;justify-content:center"><button id="confirm-ok" style="padding:6px 18px;background:#e74c3c;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">删除</button><button id="confirm-cancel" style="padding:6px 18px;background:#555;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">取消</button></div>';
     box.querySelector('#confirm-ok').onclick = function() { overlay.remove(); resolve(true); };
     box.querySelector('#confirm-cancel').onclick = function() { overlay.remove(); resolve(false); };
@@ -1929,22 +1919,42 @@ async function deleteImageFromChapter(imgPath, imgType, imgAlt) {
         body: JSON.stringify({ chapterId: _currentChapter.id, imgPath: imgPath })
       });
     }
-    // Remove from editor: find the ![...] line matching this image
     var ta = q("chb");
+    var fullEl = q("chb_full");
     if (ta) {
-      var lines = ta.value.split("\n");
+      var bodyText = ta.value;
+      var fullText = fullEl ? fullEl.value : '';
+      // Case 1: cover image in frontmatter — remove the cover.image line or the cover block
+      if (isCover || imgPath === 'cover') {
+        // Remove cover.image line (multi-line format) or cover: image: ... (inline format)
+        var coverBlockRe = /(?:^|\n)(cover:\s*\n(?:\s+image:\s*[^\n]*\n(?:\s+[^\n]*\n)*)?(?:\s+\w+:|$))/;
+        var coverInlineRe = /(?:^|\n)\s*cover:\s*image:\s*[^\n]*/;
+        if (fullText && fullText !== bodyText) {
+          // Working from full text
+          fullText = fullText.replace(coverBlockRe, '\n').replace(coverInlineRe, '');
+          if (fullEl) fullEl.value = fullText;
+          ta.value = stripFrontmatter(fullText);
+        } else {
+          bodyText = bodyText.replace(coverBlockRe, '\n').replace(coverInlineRe, '');
+          ta.value = bodyText;
+          if (fullEl) fullEl.value = restoreFrontmatter(bodyText, fullText);
+        }
+        _draftDirty = true;
+        toast("✓ 封面图片已删除");
+        return;
+      }
+      // Case 2: inline or server image in body text — remove the ![...](...) line
+      var lines = bodyText.split("\n");
       var newLines = [];
       var removed = false;
       for (var i = 0; i < lines.length; i++) {
         if (!removed && lines[i].match(/!\[[^\]]*\]\(/)) {
-          // For data URLs, match by alt text
           if (imgType === 'inline' && imgAlt) {
             if (lines[i].match(/!\[([^\]]*)\]\(/) && lines[i].indexOf('![' + imgAlt + '](') === 0) {
               removed = true;
               continue;
             }
           } else if (imgType === 'inline') {
-            // Try matching by looking for ![...] line (remove first one found)
             removed = true;
             continue;
           } else if (lines[i].includes(imgPath)) {
@@ -1975,6 +1985,79 @@ async function deleteImageFromChapter(imgPath, imgType, imgAlt) {
   } catch(e) { toast("✓ 删除失败: " + e.message); }
 }
 
+// ── 移动/转换图片位置 ──
+// moveCoverToBody: 把 frontmatter 里的封面转为正文图片
+async function moveCoverToBody(imgPath, imgType, imgAlt) {
+  if (!_currentProject || !_currentChapter) return;
+  var ta = q("chb");
+  var fullEl = q("chb_full");
+  if (!ta) return;
+  try {
+    var fullText = fullEl ? fullEl.value : '';
+    var bodyText = ta.value;
+    // Build markdown image line
+    var imgMd = '';
+    if (imgType === 'inline' && imgPath.startsWith('data:')) {
+      imgMd = '![' + (imgAlt || '封面') + '](' + imgPath + ')';
+    } else {
+      imgMd = '![' + (imgAlt || '封面') + '](' + imgPath + ')';
+    }
+    // Remove cover from frontmatter
+    var coverBlockRe = /(?:^|\n)(cover:\s*\n(?:\s+image:\s*[^\n]*\n(?:\s+[^\n]*\n)*)?(?:\s+\w+:|$))/;
+    var coverInlineRe = /(?:^|\n)\s*cover:\s*image:\s*[^\n]*/;
+    if (fullText && fullText !== bodyText) {
+      fullText = fullText.replace(coverBlockRe, '\n').replace(coverInlineRe, '');
+      // Append image to end of body
+      fullText = fullText.trimEnd() + '\n\n' + imgMd + '\n';
+      if (fullEl) fullEl.value = fullText;
+      ta.value = stripFrontmatter(fullText);
+    } else {
+      bodyText = bodyText.replace(coverBlockRe, '\n').replace(coverInlineRe, '');
+      bodyText = bodyText.trimEnd() + '\n\n' + imgMd + '\n';
+      ta.value = bodyText;
+    }
+    _draftDirty = true;
+    toast("✓ 封面已转为正文图片");
+  } catch(e) { toast("✓ 转换失败: " + e.message); }
+}
+
+// setImageAsCover: 把正文图片设为封面（写入 frontmatter）
+async function setImageAsCover(imgSrc, imgType, imgAlt) {
+  if (!_currentProject || !_currentChapter) return;
+  var ta = q("chb");
+  var fullEl = q("chb_full");
+  if (!ta) return;
+  try {
+    var fullText = fullEl ? fullEl.value : '';
+    var bodyText = ta.value;
+    // Build cover line
+    var coverLine = 'cover: image: ' + imgSrc;
+    // Remove existing cover first
+    var coverBlockRe = /(?:^|\n)(cover:\s*\n(?:\s+image:\s*[^\n]*\n(?:\s+[^\n]*\n)*)?(?:\s+\w+:|$))/;
+    var coverInlineRe = /(?:^|\n)\s*cover:\s*image:\s*[^\n]*/;
+    if (fullText && fullText !== bodyText) {
+      fullText = fullText.replace(coverBlockRe, '\n').replace(coverInlineRe, '');
+      // Insert cover after first frontmatter block (---...---)
+      var fmEndRe = /^---[\s\S]*?---\s*/;
+      var fmMatch = fullText.match(fmEndRe);
+      if (fmMatch) {
+        var insertPos = fmMatch[0].length;
+        fullText = fullText.substring(0, insertPos) + coverLine + '\n' + fullText.substring(insertPos);
+      } else {
+        fullText = '---\n' + coverLine + '\n---\n\n' + fullText;
+      }
+      if (fullEl) fullEl.value = fullText;
+      ta.value = stripFrontmatter(fullText);
+    } else {
+      bodyText = bodyText.replace(coverBlockRe, '\n').replace(coverInlineRe, '');
+      bodyText = '---\n' + coverLine + '\n---\n\n' + bodyText;
+      ta.value = bodyText;
+    }
+    _draftDirty = true;
+    toast("✓ 已设为封面");
+  } catch(e) { toast("✓ 设置失败: " + e.message); }
+}
+
 // ── 右键菜单删除图片 ──
 function initImageContextMenu() {
   // main-panel may not exist yet if writing.js loaded before app.js init
@@ -1996,8 +2079,9 @@ function initImageContextMenu() {
       var src = e.target.src || '';
       var alt = e.target.alt || '';
       var isDataUrl = src.startsWith('data:');
+      var isCover = e.target.dataset.cover === 'true';
       
-      console.log('[img-ctx] img clicked:', { src: src.substring(0,80), alt: alt, isDataUrl: isDataUrl });
+      console.log('[img-ctx] img clicked:', { src: src.substring(0,80), alt: alt, isDataUrl: isDataUrl, isCover: isCover });
       
       // Build menu
       var menu = document.createElement('div');
@@ -2012,15 +2096,47 @@ function initImageContextMenu() {
       // Show delete
       var deleteItem = document.createElement('div');
       deleteItem.style.cssText = 'padding:8px 16px;cursor:pointer;color:#ff6b6b;display:flex;align-items:center;gap:8px';
-      deleteItem.textContent = '🗑 删除图片';
+      deleteItem.textContent = isCover ? '🗑 删除封面' : '🗑 删除图片';
       deleteItem.onmouseenter = function() { this.style.background = 'rgba(255,107,107,0.15)'; };
       deleteItem.onmouseleave = function() { this.style.background = 'transparent'; };
       deleteItem.onclick = function(ev) {
         ev.stopPropagation(); 
-        deleteImageFromChapter(src, isDataUrl ? 'inline' : 'server', alt); 
+        if (isCover) {
+          deleteImageFromChapter('cover', 'cover', alt); 
+        } else {
+          deleteImageFromChapter(src, isDataUrl ? 'inline' : 'server', alt); 
+        }
         removeMenu(); 
       };
       menu.appendChild(deleteItem);
+      
+      // For cover images: option to move to body
+      if (isCover) {
+        var moveToBodyItem = document.createElement('div');
+        moveToBodyItem.style.cssText = 'padding:8px 16px;cursor:pointer;color:#4ecdc4;display:flex;align-items:center;gap:8px';
+        moveToBodyItem.textContent = '📝 转为正文图片';
+        moveToBodyItem.onmouseenter = function() { this.style.background = 'rgba(78,205,196,0.15)'; };
+        moveToBodyItem.onmouseleave = function() { this.style.background = 'transparent'; };
+        moveToBodyItem.onclick = function(ev) {
+          ev.stopPropagation();
+          moveCoverToBody(imgPath, isDataUrl ? 'inline' : 'server', alt);
+          removeMenu();
+        };
+        menu.appendChild(moveToBodyItem);
+      } else {
+        // For body images: option to set as cover
+        var setAsCoverItem = document.createElement('div');
+        setAsCoverItem.style.cssText = 'padding:8px 16px;cursor:pointer;color:#ffe66d;display:flex;align-items:center;gap:8px';
+        setAsCoverItem.textContent = '🖼 设为封面';
+        setAsCoverItem.onmouseenter = function() { this.style.background = 'rgba(255,230,109,0.15)'; };
+        setAsCoverItem.onmouseleave = function() { this.style.background = 'transparent'; };
+        setAsCoverItem.onclick = function(ev) {
+          ev.stopPropagation();
+          setImageAsCover(src, isDataUrl ? 'inline' : 'server', alt);
+          removeMenu();
+        };
+        menu.appendChild(setAsCoverItem);
+      }
       
       var removeMenu = function() { if (menu.parentNode) menu.remove(); };
       setTimeout(function() { document.addEventListener('click', removeMenu, { once: true }); }, 0);
