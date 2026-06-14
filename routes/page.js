@@ -59,6 +59,8 @@ export default function (app, ctx) {
           }
         }
       }
+      // NOTE: cover image inlining removed (2026-06-13) — keeping original path to avoid base64 bloat in editor
+      // The frontend renderMarkdown() handles both data: URLs and file paths via /api/project/:id/asset/
       return c.json(idx.chapters || []);
     } catch (e) { return c.json({ error: e.message }, 500); }
   });

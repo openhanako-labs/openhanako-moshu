@@ -303,7 +303,13 @@ function openChapter(id) {
       setTimeout(function() {
         enterEditMode();
         var ta = q('chb');
-        if (ta) { ta.value = draft.body; _draftLastBody = draft.body; }
+        var fullEl = q('chb_full');
+        if (ta && draft.body) {
+          // 先设 hidden input 为完整草稿，再 strip 后填入 textarea
+          if (fullEl) fullEl.value = draft.body;
+          ta.value = stripFrontmatter(draft.body);
+          _draftLastBody = ta.value;
+        }
       }, 100);
     } else {
       clearDraft();
@@ -369,7 +375,12 @@ async function renderChapterContent() {
 
   if (_editing) {
     h += '<input class="editor-title-input" id="cht" value="' + esc(ch.title) + '" placeholder="章节标题">';
-    h += '<textarea class="editor-textarea" id="chb" placeholder="开始写作..." oninput="_draftDirty=true">' + esc(body) + '</textarea>';
+    // 编辑模式下剥离 frontmatter，只放正文到 textarea，避免 base64 等元数据膨胀
+    var displayBody = stripFrontmatter(body);
+    console.log('[MoShu] edit mode: body.length=', body.length, 'displayBody.length=', displayBody.length, 'hasBase64=', body.includes('data:image'));
+    h += '<textarea class="editor-textarea" id="chb" placeholder="开始写作..." oninput="_draftDirty=true">' + esc(displayBody) + '</textarea>';
+    // 缓存完整原文（含 frontmatter）到 hidden div，供草稿恢复和保存时使用
+    h += '<input type="hidden" id="chb_full" value="' + esc(body) + '">';
   } else {
     if (body) {
       h += '<div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);padding:20px;font-size:14px;line-height:1.8;white-space:pre-wrap;font-family:var(--font)">' + renderMarkdown(body) + '</div>';
@@ -381,6 +392,42 @@ async function renderChapterContent() {
   h += '</div></div>';
 
   q('main-panel').innerHTML = h;
+}
+
+// ── Frontmatter 剥离/还原工具 ──
+// stripFrontmatter: 从完整内容中剥离 frontmatter 块，返回纯正文
+function stripFrontmatter(content) {
+  if (!content) return content;
+  var body = content;
+  // 循环剥离所有 frontmatter 块（---...---）
+  var fmRegex = /^---[\s\S]*?---\s*/;
+  var match;
+  var count = 0;
+  while ((match = body.match(fmRegex)) !== null) {
+    body = body.substring(match[0].length);
+    count++;
+    if (count > 10) break;
+  }
+  return body;
+}
+
+// restoreFrontmatter: 将正文内容重建为完整 markdown（加回 frontmatter）
+function restoreFrontmatter(bodyText, originalContent) {
+  if (!bodyText) return originalContent || '';
+  // 从原内容中提取 frontmatter 块（所有 ---...--- 块）
+  var fmRegex = /^---[\s\S]*?---\s*/;
+  var fmBlocks = [];
+  var work = originalContent || '';
+  var match;
+  var count = 0;
+  while ((match = work.match(fmRegex)) !== null) {
+    fmBlocks.push(match[0]);
+    work = work.substring(match[0].length);
+    count++;
+    if (count > 10) break;
+  }
+  // 重建：frontmatter + 正文
+  return fmBlocks.join('\n\n') + (fmBlocks.length > 0 ? '\n\n' : '') + bodyText;
 }
 
 function toggleCard(id) {
@@ -524,8 +571,12 @@ function saveDraft() {
   _draftLastBody = body;
   _draftDirty = false;
   try {
+    // 草稿也存完整 body（含 frontmatter），以便恢复后正确渲染
+    var fullEl = q('chb_full');
+    var fullContent = fullEl ? fullEl.value : '';
+    var fullDraft = restoreFrontmatter(body, fullContent);
     var dk = draftKey();
-    localStorage.setItem(dk, JSON.stringify({ body: body, time: Date.now() }));
+    localStorage.setItem(dk, JSON.stringify({ body: fullDraft, time: Date.now() }));
     showDraftIndicator();
   } catch(e) { /* storage full */ }
 }
@@ -1280,7 +1331,12 @@ function loadStyleAnalysis() {
 
 async function saveChapter() {
   var title = q('cht').value;
-  var body = q('chb').value;
+  var editorBody = q('chb').value;
+  // 获取完整原文（含 frontmatter）以重建
+  var fullOriginal = q('chb_full');
+  var fullContent = fullOriginal ? fullOriginal.value : '';
+  // 正文内容 + 自动还原 frontmatter
+  var body = restoreFrontmatter(editorBody, fullContent);
 
   // 保存版本历史（通过 facts API）
   var wasBody = _currentChapter.body || '';

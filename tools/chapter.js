@@ -57,7 +57,9 @@ async function execute(input) {
       const meta = idx.chapters.find(c => c.id === input.chapterId);
       if (!meta) throw new Error(`章节 ${input.chapterId} 不存在`);
       const contentPath = path.join(projDir, "chapters", `${input.chapterId}.md`);
-      const body = fs.existsSync(contentPath) ? fs.readFileSync(contentPath, "utf-8") : "";
+      let body = fs.existsSync(contentPath) ? fs.readFileSync(contentPath, "utf-8") : "";
+      // 精简 frontmatter 中的 base64 封面图，避免冗长文本
+      body = stripCoverBase64(body);
       return { content: [{ type: "text", text: JSON.stringify({
         ok: true, chapter: { ...meta, body: body.slice(0, 5000) }
       }, null, 2) }] };
@@ -102,7 +104,7 @@ async function execute(input) {
       }
       idx.chapters.sort((a, b) => a.order - b.order);
 
-      // 写内容到 md 文件
+      // 写内容到 md 文件（write 时内容已经是精简后的，直接写入）
       if (input.content) {
         const chDir = path.join(projDir, "chapters");
         fs.mkdirSync(chDir, { recursive: true });
@@ -149,18 +151,32 @@ async function execute(input) {
       const now = new Date().toISOString();
       const wordCount = input.content.replace(/\s/g, "").length;
 
-      // 旧版本备份
+      // 备份当前版本前先提取原始 base64 封面（用于还原）
       const srcMd = path.join(chDir, `${input.chapterId}.md`);
+      let originalBase64 = "";
       if (fs.existsSync(srcMd)) {
+        const originalContent = fs.readFileSync(srcMd, "utf-8");
+        // 提取 cover.image: data:image/...;base64,...
+        // 匹配 cover 块中的 image 行：cover:\n  image: data:image/...;base64,...
+        const coverBlockMatch = originalContent.match(/cover:\n(\s*)image:\s*(data:image\/\w+;base64,[^\r\n]*)/m);
+        // 同时匹配 cover: image: 一行格式
+        const coverInlineMatch = originalContent.match(/^\s*cover:\s*image:\s*(data:image\/\w+;base64,[^\r\n]*)/m);
+        const coverMatch = coverBlockMatch || coverInlineMatch;
+        if (coverMatch) originalBase64 = coverMatch[2] || coverMatch[1];
         // 找下一个可用版本号
         let rev = 1;
         while (fs.existsSync(path.join(chDir, `${input.chapterId}_rev_${rev}.md`))) rev++;
         fs.renameSync(srcMd, path.join(chDir, `${input.chapterId}_rev_${rev}.md`));
       }
 
+      // 还原 base64 封面（如果编辑时被精简过）再写入
+      let restoredContent = input.content;
+      if (originalBase64 && input.content.includes("[base64-cover-image]")) {
+        restoredContent = input.content.replace(/image:\s*\[base64-cover-image\]/, "image: " + originalBase64);
+      }
       // 写新版本
       fs.mkdirSync(chDir, { recursive: true });
-      fs.writeFileSync(srcMd, input.content, "utf-8");
+      fs.writeFileSync(srcMd, restoredContent, "utf-8");
 
       // 更新元数据
       idx.chapters[metaIdx] = {
@@ -250,5 +266,58 @@ async function execute(input) {
     return { content: [{ type: "text", text: `❌ ${e.message}` }] };
   }
 }
+
+// ── 封面 base64 精简工具 ──
+const COVER_REPLACEMENT = "  image: [base64-cover-image]";
+
+/**
+ * stripCoverBase64 - 将 frontmatter 中的 base64 封面图替换为简短标记
+ */
+function stripCoverBase64(content) {
+  if (!content) return content;
+  const lines = content.split("\n");
+  // 找 frontmatter 结束：第二个 ---
+  let fmEnd = 0;
+  let dashCount = 0;
+  for (let i = 0; i < Math.min(lines.length, 20); i++) {
+    if (lines[i].trim() === "---") { dashCount++; }
+    if (dashCount === 2) { fmEnd = i + 1; break; }
+  }
+  // 如果没找到 frontmatter 标记，扫描前 10 行找 image: data:image/
+  if (!fmEnd) {
+    fmEnd = Math.min(lines.length, 10);
+  }
+  const fmPart = lines.slice(0, fmEnd).join("\n");
+  const bodyPart = lines.slice(fmEnd).join("\n");
+
+  // 在 frontmatter 中查找并替换 base64 行
+  const fmLines = fmPart.split("\n");
+  let inCoverSection = false;
+  const resultLines = fmLines.map(line => {
+    // cover 键
+    if (/^\s*cover:\s*$/.test(line) || /^\s*cover:$/.test(line)) {
+      inCoverSection = true;
+      return line;
+    }
+    // cover 块内的 image: data:image/...
+    if (inCoverSection && /^\s*image:\s*data:image\//.test(line)) {
+      inCoverSection = false;
+      return COVER_REPLACEMENT;
+    }
+    // cover: image: 同格式
+    if (/^\s*cover:\s*image:\s*data:image\//.test(line)) {
+      return COVER_REPLACEMENT;
+    }
+    // cover 块结束
+    if (inCoverSection && /^\s*\w/.test(line) && !/^\s*image:/.test(line)) {
+      inCoverSection = false;
+    }
+    return line;
+  });
+
+  return resultLines.join("\n") + (bodyPart.length > 0 ? "\n" + bodyPart : "");
+}
+
+
 
 export { name, description, parameters, execute };
