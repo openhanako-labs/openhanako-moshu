@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "mo-shu",
   "name": "墨述",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "墨述 (Ink Narrative) — Hanako 写作工具箱",
   "minAppVersion": "0.0.0",
   "trust": "full-access",

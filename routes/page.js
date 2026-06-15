@@ -85,9 +85,11 @@ export default function (app, ctx) {
   app.get("/api/world/locations", async c => { try { const fs = await import("node:fs"), path = await import("node:path"); const fp = path.join(dd, "world.json"); return c.json(fs.existsSync(fp) ? JSON.parse(fs.readFileSync(fp, "utf-8")).locations || [] : []); } catch (e) { return c.json({ error: e.message }, 500); } });
   app.post("/api/world/locations", async c => { try { const fs = await import("node:fs"), path = await import("node:path"); const b = await c.req.json(); const fp = path.join(dd, "world.json"); const data = fs.existsSync(fp) ? JSON.parse(fs.readFileSync(fp, "utf-8")) : { locations: [] }; if (b.id) { const i = data.locations.findIndex(l => l.id === b.id); if (i >= 0) { Object.assign(data.locations[i], b); data.locations[i].updated_at = new Date().toISOString(); } } else { data.locations.push({ id: 'loc_' + Date.now().toString(36), name: b.name || '', type: b.type || 'default', worldId: b.worldId || 'default', lat: b.lat || 35, lng: b.lng || 105, description: b.description || '', projectId: b.projectId || null, tags: b.tags || [], created_at: new Date().toISOString() }); } fs.writeFileSync(fp, JSON.stringify(data, null, 2), "utf-8"); return c.json({ ok: true, count: data.locations.length }); } catch (e) { return c.json({ error: e.message }, 500); } });
   app.delete("/api/world/locations/:locId", async c => { try { const fs = await import("node:fs"), path = await import("node:path"); const lid = c.req.param("locId"); const fp = path.join(dd, "world.json"); if (!fs.existsSync(fp)) return c.json({ ok: false, error: "not found" }); const data = JSON.parse(fs.readFileSync(fp, "utf-8")); data.locations = data.locations.filter(l => l.id !== lid); fs.writeFileSync(fp, JSON.stringify(data, null, 2), "utf-8"); return c.json({ ok: true }); } catch (e) { return c.json({ error: e.message }, 500); } });
-  app.get("/app", (c) => {
+  app.get("/app", async (c) => {
     const token = c.req.query("token") || "", hcss = c.req.query("hana-css") || "", base = "/api/plugins/" + pid;
-    return c.html('<!DOCTYPE html><html><head><meta charset=UTF-8><meta name=viewport content="width=device-width,initial-scale=1"><title>墨述</title>' + (hcss ? '<link rel="stylesheet" href="' + hcss + '">' : "") + '<style>' + APPCSS + '</style></head><body><div id=root></div><script>var API=' + JSON.stringify(base) + ',TOKEN=' + JSON.stringify(token) + ';' + VIEW_UTILS + VIEW_WRITING + VIEW_MAP + VIEW_DASH + VIEW_TLVIZ + '</script><script>' + APPJS + '</script></body></html>');
+    // 每次请求重新读取，确保修改立即生效
+    const vwjs = fs.readFileSync(vwp, "utf-8");
+    return c.html('<!DOCTYPE html><html><head><meta charset=UTF-8><meta name=viewport content="width=device-width,initial-scale=1"><title>墨述</title>' + (hcss ? '<link rel="stylesheet" href="' + hcss + '">' : "") + '<style>' + APPCSS + '</style></head><body><div id=root></div><script>var API=' + JSON.stringify(base) + ',TOKEN=' + JSON.stringify(token) + ';' + VIEW_UTILS + vwjs + VIEW_MAP + VIEW_DASH + VIEW_TLVIZ + '</script><script>' + APPJS + '</script></body></html>');
   });
   app.get("/world", async (c) => {
     const token = c.req.query("token") || "", hcss = c.req.query("hana-css") || "", base = "/api/plugins/" + pid;
@@ -559,23 +561,6 @@ export default function (app, ctx) {
       const cp = path.join(dd, "projects", id, "chapters", chId + ".md");
       if (!fs.existsSync(cp)) return c.json({ error: "not found" }, 404);
       var body = fs.readFileSync(cp, "utf-8");
-      // Inline ALL image: xxx references (front matter cover)
-      body = body.replace(/image:\s*["']?([^\n'"\\]+)["']?/g, function(fullMatch, rawPath) {
-        var p = rawPath.trim();
-        if (p.startsWith("data:")) return fullMatch;
-        if (!p.includes("文本附件")) return fullMatch;
-        var full = path.join(dd, "projects", id, "chapters", p);
-        var norm = full.replace(/\\/g, "/");
-        if (fs.existsSync(norm)) {
-          try {
-            var data = fs.readFileSync(norm);
-            var ext = p.split(".").pop().toLowerCase();
-            var mime = {png:"image/png",jpg:"image/jpeg",jpeg:"image/jpeg",gif:"image/gif",webp:"image/webp"}[ext] || "image/png";
-            return "image: " + "data:" + mime + ";base64," + data.toString("base64");
-          } catch(e) {}
-        }
-        return fullMatch;
-      });
       // Inline all ![alt](path) references (chapter body images)
       body = body.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(match, alt, p1) {
         if (p1.startsWith("data:")) return match;

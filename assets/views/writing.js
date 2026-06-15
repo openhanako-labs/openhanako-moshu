@@ -1,4 +1,5 @@
 ﻿var _showImageGen = false;
+var _localBodyDirty = false;
 
 function renderWritingSidebar() {
   var h = '<div class="sidebar-header">项目<span class="count">' + _projects.length + '</span></div>';
@@ -321,14 +322,19 @@ async function renderChapterContent() {
   var ch = _currentChapter;
   if (!ch) return;
   var body = ch.body || '';
+  console.log('[renderCh] ch.body length:', body.length, 'editing:', _editing);
 
   // Non-editing mode: fetch fresh body with all images inlined as base64
-  if (!_editing) {
+  // BUT: only if body hasn't been locally modified (e.g. image delete in progress)
+  if (!_editing && !_localBodyDirty) {
     try {
       var rc = await fetch(tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/chapter/' + encodeURIComponent(ch.id)));
       var rd = await rc.json();
       if (rd.body) body = rd.body;
+      console.log('[renderCh] fetched body length:', body.length);
     } catch(e) {}
+  } else if (!_editing) {
+    console.log('[renderCh] skipping fetch — local body dirty');
   }
 
   var h = '';
@@ -1894,8 +1900,11 @@ async function insertImageToChapter() {
 
 //  删除图片
 async function deleteImageFromChapter(imgPath, imgType, imgAlt) {
+  console.log('[deleteImg] ENTER:', { imgPath: imgPath.substring ? imgPath.substring(0,60) : imgPath, imgType: imgType, imgAlt: imgAlt });
   if (!_currentProject || !_currentChapter) return;
-  var isCover = false;
+  var isCover = (imgPath === 'cover');
+  _localBodyDirty = false;
+  console.log('[deleteImg] isCover:', isCover);
   // Custom confirm
   var confirmed = await new Promise(function(resolve) {
     var overlay = document.createElement('div');
@@ -1909,7 +1918,9 @@ async function deleteImageFromChapter(imgPath, imgType, imgAlt) {
     overlay.appendChild(box);
     document.body.appendChild(overlay);
   });
+  console.log('[deleteImg] confirmed:', confirmed);
   if (!confirmed) return;
+  console.log('[deleteImg] starting deletion');
   try {
     // Only delete server file if type is server
     if (imgType === "server") {
@@ -1936,126 +1947,103 @@ async function deleteImageFromChapter(imgPath, imgType, imgAlt) {
           ta.value = stripFrontmatter(fullText);
         } else {
           bodyText = bodyText.replace(coverBlockRe, '\n').replace(coverInlineRe, '');
+          if (fullText) fullText = fullText.replace(coverBlockRe, '\n').replace(coverInlineRe, '');
           ta.value = bodyText;
-          if (fullEl) fullEl.value = restoreFrontmatter(bodyText, fullText);
+          if (fullEl) fullEl.value = restoreFrontmatter(bodyText, fullText || '');
         }
         _draftDirty = true;
+        _localBodyDirty = true;
         toast("✓ 封面图片已删除");
+        var taSync = q("chb");
+        var fullElSync = q("chb_full");
+        if (taSync && fullElSync) {
+          _currentChapter.body = fullElSync.value;
+        } else if (taSync) {
+          _currentChapter.body = taSync.value;
+        }
+        await renderChapterContent();
         return;
       }
       // Case 2: inline or server image in body text — remove the ![...](...) line
-      var lines = bodyText.split("\n");
-      var newLines = [];
-      var removed = false;
-      for (var i = 0; i < lines.length; i++) {
-        if (!removed && lines[i].match(/!\[[^\]]*\]\(/)) {
-          if (imgType === 'inline' && imgAlt) {
-            if (lines[i].match(/!\[([^\]]*)\]\(/) && lines[i].indexOf('![' + imgAlt + '](') === 0) {
+      var ta = q("chb");
+      if (ta) {
+        // Edit mode: manipulate body text in textarea
+        var lines = bodyText.split("\n");
+        var newLines = [];
+        var removed = false;
+        for (var i = 0; i < lines.length; i++) {
+          if (!removed && lines[i].match(/!\[[^\]]*\]\(/)) {
+            if (imgType === 'inline' && imgAlt) {
+              if (lines[i].match(/!\[([^\]]*)\]\(/) && lines[i].indexOf('![' + imgAlt + '](') === 0) {
+                removed = true;
+                continue;
+              }
+            } else if (imgType === 'inline') {
+              removed = true;
+              continue;
+            } else if (lines[i].includes(imgPath)) {
               removed = true;
               continue;
             }
-          } else if (imgType === 'inline') {
-            removed = true;
-            continue;
-          } else if (lines[i].includes(imgPath)) {
+          }
+          newLines.push(lines[i]);
+        }
+        ta.value = newLines.join("\n");
+        _draftDirty = true;
+        toast("✓ 图片已删除");
+      } else {
+        // Preview mode: bodyText is undefined, but _currentChapter.body has the full content
+        // Remove the image line from _currentChapter.body directly
+        var body = _currentChapter.body || '';
+        console.log('[deleteImg] preview mode body preview:', body.substring(0, 200));
+        console.log('[deleteImg] preview mode body length:', body.length);
+        var lines = body.split("\n");
+        var newLines = [];
+        var removed = false;
+        for (var i = 0; i < lines.length; i++) {
+          if (!removed && lines[i].match(/!\[[^\]]*\]\(/)) {
+            console.log('[deleteImg] removing line:', lines[i].substring(0, 100));
+            // Remove first matching image line (should be the one right-clicked)
             removed = true;
             continue;
           }
+          newLines.push(lines[i]);
         }
-        newLines.push(lines[i]);
+        var newBody = newLines.join("\n");
+        console.log('[deleteImg] new body preview:', newBody.substring(0, 200));
+        console.log('[deleteImg] new body length:', newBody.length);
+        _currentChapter.body = newBody;
+        toast("✓ 图片已删除");
       }
-      ta.value = newLines.join("\n");
-      _draftDirty = true;
-      toast("✓ 图片已删除");
     } else {
-      // If not in editor, just delete the server file
-      if (imgType === "server") {
-        try {
-          await fetch(tu(A + "/api/project/" + encodeURIComponent(_currentProject.id) + "/delete-image"), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ chapterId: _currentChapter.id, imgPath: imgPath })
-          });
-        } catch(e) {}
+      // If not in editor (preview mode), handle cover or body image deletion
+      if (isCover) {
+        // Preview mode cover delete: strip cover: image: from frontmatter
+        var body = _currentChapter.body || '';
+        console.log('[deleteImg] preview cover delete, body length:', body.length);
+        var coverBlockRe = /(?:^|\n)(cover:\s*\n(?:\s+image:\s*[^\n]*\n(?:\s+[^\n]*\n)*)?(?:\s+\w+:|$))/;
+        var coverInlineRe = /(?:^|\n)\s*cover:\s*image:\s*[^\n]*/;
+        body = body.replace(coverBlockRe, '\n').replace(coverInlineRe, '');
+        _currentChapter.body = body;
+        console.log('[deleteImg] preview cover delete, new body preview:', body.substring(0, 200));
+        _localBodyDirty = true;
+        toast("✓ 封面图片已删除");
+      } else {
+        // If not in editor, just delete the server file
       }
-      toast("✓ 图片已删除");
     }
-    // Refresh display
+    // Sync: if in edit mode, pull from DOM; preview mode already updated _currentChapter.body
+    var ta2 = q("chb");
+    var fullEl2 = q("chb_full");
+    if (ta2 && fullEl2) {
+      _currentChapter.body = fullEl2.value;
+    } else if (ta2) {
+      _currentChapter.body = ta2.value;
+    } else {
+      // Preview mode — _currentChapter.body was already updated above
+    }
     await renderChapterContent();
   } catch(e) { toast("✓ 删除失败: " + e.message); }
-}
-
-// ── 移动/转换图片位置 ──
-// moveCoverToBody: 把 frontmatter 里的封面转为正文图片
-async function moveCoverToBody(imgPath, imgType, imgAlt) {
-  if (!_currentProject || !_currentChapter) return;
-  var ta = q("chb");
-  var fullEl = q("chb_full");
-  if (!ta) return;
-  try {
-    var fullText = fullEl ? fullEl.value : '';
-    var bodyText = ta.value;
-    // Build markdown image line
-    var imgMd = '';
-    if (imgType === 'inline' && imgPath.startsWith('data:')) {
-      imgMd = '![' + (imgAlt || '封面') + '](' + imgPath + ')';
-    } else {
-      imgMd = '![' + (imgAlt || '封面') + '](' + imgPath + ')';
-    }
-    // Remove cover from frontmatter
-    var coverBlockRe = /(?:^|\n)(cover:\s*\n(?:\s+image:\s*[^\n]*\n(?:\s+[^\n]*\n)*)?(?:\s+\w+:|$))/;
-    var coverInlineRe = /(?:^|\n)\s*cover:\s*image:\s*[^\n]*/;
-    if (fullText && fullText !== bodyText) {
-      fullText = fullText.replace(coverBlockRe, '\n').replace(coverInlineRe, '');
-      // Append image to end of body
-      fullText = fullText.trimEnd() + '\n\n' + imgMd + '\n';
-      if (fullEl) fullEl.value = fullText;
-      ta.value = stripFrontmatter(fullText);
-    } else {
-      bodyText = bodyText.replace(coverBlockRe, '\n').replace(coverInlineRe, '');
-      bodyText = bodyText.trimEnd() + '\n\n' + imgMd + '\n';
-      ta.value = bodyText;
-    }
-    _draftDirty = true;
-    toast("✓ 封面已转为正文图片");
-  } catch(e) { toast("✓ 转换失败: " + e.message); }
-}
-
-// setImageAsCover: 把正文图片设为封面（写入 frontmatter）
-async function setImageAsCover(imgSrc, imgType, imgAlt) {
-  if (!_currentProject || !_currentChapter) return;
-  var ta = q("chb");
-  var fullEl = q("chb_full");
-  if (!ta) return;
-  try {
-    var fullText = fullEl ? fullEl.value : '';
-    var bodyText = ta.value;
-    // Build cover line
-    var coverLine = 'cover: image: ' + imgSrc;
-    // Remove existing cover first
-    var coverBlockRe = /(?:^|\n)(cover:\s*\n(?:\s+image:\s*[^\n]*\n(?:\s+[^\n]*\n)*)?(?:\s+\w+:|$))/;
-    var coverInlineRe = /(?:^|\n)\s*cover:\s*image:\s*[^\n]*/;
-    if (fullText && fullText !== bodyText) {
-      fullText = fullText.replace(coverBlockRe, '\n').replace(coverInlineRe, '');
-      // Insert cover after first frontmatter block (---...---)
-      var fmEndRe = /^---[\s\S]*?---\s*/;
-      var fmMatch = fullText.match(fmEndRe);
-      if (fmMatch) {
-        var insertPos = fmMatch[0].length;
-        fullText = fullText.substring(0, insertPos) + coverLine + '\n' + fullText.substring(insertPos);
-      } else {
-        fullText = '---\n' + coverLine + '\n---\n\n' + fullText;
-      }
-      if (fullEl) fullEl.value = fullText;
-      ta.value = stripFrontmatter(fullText);
-    } else {
-      bodyText = bodyText.replace(coverBlockRe, '\n').replace(coverInlineRe, '');
-      bodyText = '---\n' + coverLine + '\n---\n\n' + bodyText;
-      ta.value = bodyText;
-    }
-    _draftDirty = true;
-    toast("✓ 已设为封面");
-  } catch(e) { toast("✓ 设置失败: " + e.message); }
 }
 
 // ── 右键菜单删除图片 ──
@@ -2109,34 +2097,6 @@ function initImageContextMenu() {
         removeMenu(); 
       };
       menu.appendChild(deleteItem);
-      
-      // For cover images: option to move to body
-      if (isCover) {
-        var moveToBodyItem = document.createElement('div');
-        moveToBodyItem.style.cssText = 'padding:8px 16px;cursor:pointer;color:#4ecdc4;display:flex;align-items:center;gap:8px';
-        moveToBodyItem.textContent = '📝 转为正文图片';
-        moveToBodyItem.onmouseenter = function() { this.style.background = 'rgba(78,205,196,0.15)'; };
-        moveToBodyItem.onmouseleave = function() { this.style.background = 'transparent'; };
-        moveToBodyItem.onclick = function(ev) {
-          ev.stopPropagation();
-          moveCoverToBody(imgPath, isDataUrl ? 'inline' : 'server', alt);
-          removeMenu();
-        };
-        menu.appendChild(moveToBodyItem);
-      } else {
-        // For body images: option to set as cover
-        var setAsCoverItem = document.createElement('div');
-        setAsCoverItem.style.cssText = 'padding:8px 16px;cursor:pointer;color:#ffe66d;display:flex;align-items:center;gap:8px';
-        setAsCoverItem.textContent = '🖼 设为封面';
-        setAsCoverItem.onmouseenter = function() { this.style.background = 'rgba(255,230,109,0.15)'; };
-        setAsCoverItem.onmouseleave = function() { this.style.background = 'transparent'; };
-        setAsCoverItem.onclick = function(ev) {
-          ev.stopPropagation();
-          setImageAsCover(src, isDataUrl ? 'inline' : 'server', alt);
-          removeMenu();
-        };
-        menu.appendChild(setAsCoverItem);
-      }
       
       var removeMenu = function() { if (menu.parentNode) menu.remove(); };
       setTimeout(function() { document.addEventListener('click', removeMenu, { once: true }); }, 0);
