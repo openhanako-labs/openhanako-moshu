@@ -30,41 +30,29 @@ export default function (app, ctx) {
       const p2 = path.join(dd, "projects", id), ip = path.join(p2, "chapters.json");
       if (!fs.existsSync(ip)) return c.json([]);
       const idx = JSON.parse(fs.readFileSync(ip, "utf-8"));
+      var dirty = false;
       for (const ch of (idx.chapters || [])) {
         const cp = path.join(p2, "chapters", ch.id + ".md");
-        ch.body = fs.existsSync(cp) ? fs.readFileSync(cp, "utf-8") : "";
-        // Inline cover image as base64 data URL to avoid asset route
-        if (ch.body) {
-          var fmMatch = ch.body.match(/^---[\s\S]*?---/);
-          if (fmMatch) {
-            var imgMatch = fmMatch[0].match(/image:\s*["']?([^\n'"]+)["']?/);
-            if (imgMatch) {
-              var coverPath = imgMatch[1].trim();
-              var coverFull = path.join(p2, "chapters", coverPath);
-              // Normalize to forward slashes for Bun audit
-              var normCover = coverFull.replace(/\\/g, '/');
-              if (fs.existsSync(normCover)) {
-                var coverData = fs.readFileSync(normCover);
-                var ext = coverPath.split(".").pop().toLowerCase();
-                var mime = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" }[ext] || "image/png";
-                var b64 = coverData.toString("base64");
-                var dataUrl = "data:" + mime + ";base64," + b64;
-                // Replace front matter image with inline data URL
-                ch.body = ch.body.replace(
-                  /(image:\s*["']?)([^\n'"]+)(["']?)/,
-                  '$1' + dataUrl + '$3'
-                );
-              }
-            }
-          }
+        var rawBody = fs.existsSync(cp) ? fs.readFileSync(cp, "utf-8") : "";
+        ch.body = rawBody;
+        // wordCount: strip frontmatter before counting
+        var bodyWithoutFM = rawBody;
+        var fmRegex = /^---[\s\S]*?---\s*/;
+        var m;
+        while ((m = bodyWithoutFM.match(fmRegex)) !== null) {
+          bodyWithoutFM = bodyWithoutFM.substring(m[0].length);
+        }
+        var newWordCount = bodyWithoutFM.replace(/\s/g, "").length;
+        if (ch.wordCount !== newWordCount) {
+          ch.wordCount = newWordCount;
+          dirty = true;
         }
       }
-      // NOTE: cover image inlining removed (2026-06-13) — keeping original path to avoid base64 bloat in editor
-      // The frontend renderMarkdown() handles both data: URLs and file paths via /api/project/:id/asset/
+      if (dirty) fs.writeFileSync(ip, JSON.stringify(idx, null, 2), "utf-8");
       return c.json(idx.chapters || []);
     } catch (e) { return c.json({ error: e.message }, 500); }
   });
-  app.post("/api/project/:id/chapters", async c => { const id = safeProjectId(c.req.param("id")); if (!id) return c.json({ error: "bad id" }, 400); try { const fs = await import("node:fs"), path = await import("node:path"); const b = await c.req.json(); const p2 = path.join(dd, "projects", id), ip = path.join(p2, "chapters.json"); const idx = fs.existsSync(ip) ? JSON.parse(fs.readFileSync(ip, "utf-8")) : { chapters: [] }; const now = new Date().toISOString(); if (b && b._delete && b.id) { const di = idx.chapters.findIndex(c2 => c2.id === b.id); if (di >= 0) { idx.chapters.splice(di, 1); try { fs.unlinkSync(path.join(p2, "chapters", b.id + ".md")); } catch(e) {} } } else if (b && b.id) { const i = idx.chapters.findIndex(c2 => c2.id === b.id); if (i >= 0) { idx.chapters[i].title = b.title || idx.chapters[i].title; idx.chapters[i].wordCount = (b.content || "").replace(/\s/g, "").length; idx.chapters[i].updated_at = now; if (b.volume !== undefined) idx.chapters[i].volume = b.volume || null; if (b.status) idx.chapters[i].status = b.status; if (b.content) fs.writeFileSync(path.join(p2, "chapters", b.id + ".md"), b.content, "utf-8"); } } else if (b) { const nid = "ch_" + String(idx.chapters.length + 1).padStart(2, "0"); fs.mkdirSync(path.join(p2, "chapters"), { recursive: true }); fs.writeFileSync(path.join(p2, "chapters", nid + ".md"), b.content || "", "utf-8"); idx.chapters.push({ id: nid, title: b.title || "new", order: idx.chapters.length + 1, status: "draft", wordCount: (b.content || "").replace(/\s/g, "").length, hooks: [], created_at: now, updated_at: now }); } fs.writeFileSync(ip, JSON.stringify(idx, null, 2), "utf-8"); return c.json({ ok: true }); } catch (e) { return c.json({ error: e.message }, 500); } });
+  app.post("/api/project/:id/chapters", async c => { const id = safeProjectId(c.req.param("id")); if (!id) return c.json({ error: "bad id" }, 400); try { const fs = await import("node:fs"), path = await import("node:path"); const b = await c.req.json(); const p2 = path.join(dd, "projects", id), ip = path.join(p2, "chapters.json"); const idx = fs.existsSync(ip) ? JSON.parse(fs.readFileSync(ip, "utf-8")) : { chapters: [] }; const now = new Date().toISOString(); if (b && b._delete && b.id) { const di = idx.chapters.findIndex(c2 => c2.id === b.id); if (di >= 0) { idx.chapters.splice(di, 1); try { fs.unlinkSync(path.join(p2, "chapters", b.id + ".md")); } catch(e) {} } } else if (b && b.id) { const i = idx.chapters.findIndex(c2 => c2.id === b.id); if (i >= 0) { idx.chapters[i].title = b.title || idx.chapters[i].title; idx.chapters[i].wordCount = stripFM(b.content || ""); idx.chapters[i].updated_at = now; if (b.volume !== undefined) idx.chapters[i].volume = b.volume || null; if (b.status) idx.chapters[i].status = b.status; if (b.content) fs.writeFileSync(path.join(p2, "chapters", b.id + ".md"), b.content, "utf-8"); } } else if (b) { const nid = "ch_" + String(idx.chapters.length + 1).padStart(2, "0"); fs.mkdirSync(path.join(p2, "chapters"), { recursive: true }); fs.writeFileSync(path.join(p2, "chapters", nid + ".md"), b.content || "", "utf-8"); idx.chapters.push({ id: nid, title: b.title || "new", order: idx.chapters.length + 1, status: "draft", wordCount: stripFM(b.content || ""), hooks: [], created_at: now, updated_at: now }); } fs.writeFileSync(ip, JSON.stringify(idx, null, 2), "utf-8"); return c.json({ ok: true }); } catch (e) { return c.json({ error: e.message }, 500); } });
   app.get("/api/project/:id/cards", async c => { const id = safeProjectId(c.req.param("id")); if (!id) return c.json({ error: "bad id" }, 400); try { const fs = await import("node:fs"), path = await import("node:path"); const cd = path.join(dd, "projects", id, "cards"); const r = []; for (const t of ["characters", "world", "style"]) { const fp = path.join(cd, t + ".json"); if (fs.existsSync(fp)) { const d = JSON.parse(fs.readFileSync(fp, "utf-8")); if (d.cards) r.push(...d.cards); } } return c.json(r); } catch (e) { return c.json({ error: e.message }, 500); } });
   app.get("/api/project/:id/card-meta", async c => { const id = safeProjectId(c.req.param("id")); if (!id) return c.json({ error: "bad id" }, 400); try { const cid = c.req.query("cid"); const fs = await import("node:fs"), path = await import("node:path"); const cd = path.join(dd, "projects", id, "cards"); for (const t of ["characters", "world", "style"]) { const fp = path.join(cd, t + ".json"); if (!fs.existsSync(fp)) continue; const d = JSON.parse(fs.readFileSync(fp, "utf-8")); if (d.cards) { const idx = d.cards.findIndex(c2 => c2.id === cid); if (idx >= 0) return c.json({ type: t, file: fp }); } } return c.json({ type: null }); } catch (e) { return c.json({ error: e.message }, 500); } });
   app.post("/api/project/:id/cards", async c => { const id = safeProjectId(c.req.param("id")); if (!id) return c.json({ error: "bad id" }, 400); try { const fs = await import("node:fs"), path = await import("node:path"); const b = await c.req.json(); const cd = path.join(dd, "projects", id, "cards"); fs.mkdirSync(cd, { recursive: true }); if (b && b.id && b._delete) { for (const t of ["characters", "world", "style"]) { const fp = path.join(cd, t + ".json"); if (!fs.existsSync(fp)) continue; const data = JSON.parse(fs.readFileSync(fp, "utf-8")); const di = data.cards.findIndex(c2 => c2.id === b.id); if (di >= 0) { data.cards.splice(di, 1); fs.writeFileSync(fp, JSON.stringify(data, null, 2), "utf-8"); return c.json({ ok: true }); } } return c.json({ ok: false, error: "not found" }, 404); } else if (b && b.id) { var oldFile = null, oldData = null, oldIndex = -1; for (const t of ["characters", "world", "style"]) { const fp = path.join(cd, t + ".json"); if (!fs.existsSync(fp)) continue; const data = JSON.parse(fs.readFileSync(fp, "utf-8")); const idx = data.cards.findIndex(c2 => c2.id === b.id); if (idx >= 0) { oldFile = fp; oldData = data; oldIndex = idx; break; } } if (oldFile) { oldData.cards.splice(oldIndex, 1); fs.writeFileSync(oldFile, JSON.stringify(oldData, null, 2), "utf-8"); } const t = b.type || "characters"; const fp = path.join(cd, t + ".json"); const data = fs.existsSync(fp) ? JSON.parse(fs.readFileSync(fp, "utf-8")) : { cards: [] }; const card = { id: b.id, name: b.name || "", type: t, content: b.content !== undefined ? b.content : {}, tags: b.tags || [], updated_at: new Date().toISOString() }; data.cards.push(card); fs.writeFileSync(fp, JSON.stringify(data, null, 2), "utf-8"); return c.json({ ok: true }); } else { const t = b.type || "characters"; const fp = path.join(cd, t + ".json"); const data = fs.existsSync(fp) ? JSON.parse(fs.readFileSync(fp, "utf-8")) : { cards: [] }; var card = { id: "card_" + Date.now().toString(36), name: b.name || "", type: t, content: b.content || {}, tags: b.tags || [], created_at: new Date().toISOString() }; data.cards.push(card); fs.writeFileSync(fp, JSON.stringify(data, null, 2), "utf-8"); return c.json({ ok: true }); } } catch (e) { return c.json({ error: e.message }, 500); } });
@@ -78,6 +66,18 @@ export default function (app, ctx) {
   // 大纲 API
   app.get("/api/project/:id/outline", async c => { const id = safeProjectId(c.req.param("id")); if (!id) return c.json({ error: "bad id" }, 400); try { const fs = await import("node:fs"), path = await import("node:path"); const fp = path.join(dd, "projects", id, "outline.json"); if (!fs.existsSync(fp)) return c.json({ arcs: [] }); return c.json(JSON.parse(fs.readFileSync(fp, "utf-8"))); } catch (e) { return c.json({ error: e.message }, 500); } });
   app.post("/api/project/:id/outline", async c => { const id = safeProjectId(c.req.param("id")); if (!id) return c.json({ error: "bad id" }, 400); try { const fs = await import("node:fs"), path = await import("node:path"); const b = await c.req.json(); const fp = path.join(dd, "projects", id, "outline.json"); fs.writeFileSync(fp, JSON.stringify(b, null, 2), "utf-8"); return c.json({ ok: true }); } catch (e) { return c.json({ error: e.message }, 500); } });
+// Strip YAML front matter ---...--- from markdown content, return body only
+  function stripFM(content) {
+    if (!content) return 0;
+    var clean = content;
+    var fmRegex = /^---[\s\S]*?---\s*/;
+    var m;
+    while ((m = clean.match(fmRegex)) !== null) {
+      clean = clean.substring(m[0].length);
+    }
+    return clean.replace(/\s/g, "").length;
+  }
+
   // 章节排序 API
   app.post("/api/project/:id/reorder", async c => { const id = safeProjectId(c.req.param("id")); if (!id) return c.json({ error: "bad id" }, 400); try { const fs = await import("node:fs"), path = await import("node:path"); const b = await c.req.json(); const p2 = path.join(dd, "projects", id), ip = path.join(p2, "chapters.json"); if (!fs.existsSync(ip)) return c.json({ ok: false, error: "no chapters" }, 404); const idx = JSON.parse(fs.readFileSync(ip, "utf-8")); const idOrder = {}; b.orderedIds.forEach((cid, i) => { idOrder[cid] = i + 1; }); idx.chapters.forEach(ch => { if (idOrder[ch.id] !== undefined) ch.order = idOrder[ch.id]; }); idx.chapters.sort((a, b) => (a.order || 0) - (b.order || 0)); fs.writeFileSync(ip, JSON.stringify(idx, null, 2), "utf-8"); return c.json({ ok: true, count: idx.chapters.length }); } catch (e) { return c.json({ error: e.message }, 500); } });
 
@@ -643,7 +643,7 @@ export default function (app, ctx) {
       var imgRelPath = '文本附件/' + safeName;
       // 只保存图片文件，不在 .md 里追加引用（前端在编辑区插入）
       return c.json({ ok: true, imgPath: imgRelPath, fileName: safeName });
-    } catch(e) { return c.json({ error: e.message }, 500); }
+    } catch(e) { return c.json({ error: e.message, stack: e.stack }, 500); }
   });
 
   // --- 删除图片 ---
@@ -654,13 +654,33 @@ export default function (app, ctx) {
       const body = await c.req.json();
       var chapterId = body.chapterId || '';
       var imgPath = body.imgPath || '';
-      if (!chapterId || !imgPath) return c.json({ ok: true });
+      var imgType = body.imgType || '';
+      var base64Prefix = body.base64Prefix || '';
+      if (!chapterId) return c.json({ ok: true });
       const fs2 = await import('node:fs'), path2 = await import('node:path');
-      const filePath = path2.join(dd, 'projects', id, 'chapters', imgPath);
-      // 只删文件，不改 .md（前端会处理）
-      if (fs2.existsSync(filePath)) {
-        fs2.unlinkSync(filePath);
+
+      // 1. Delete file on disk if it's a server image
+      if (imgPath) {
+        var filePath = path2.join(dd, 'projects', id, 'chapters', imgPath);
+        if (fs2.existsSync(filePath)) fs2.unlinkSync(filePath);
       }
+
+      // 2. Remove image markdown from .md file
+      var chPath = path2.join(dd, 'projects', id, 'chapters', chapterId + '.md');
+      if (fs2.existsSync(chPath)) {
+        var content = fs2.readFileSync(chPath, 'utf-8');
+        // Remove frontmatter cover image line
+        content = content.replace(/image:\s*["']?[^\n'"]+["']?\s*\n?/g, '');
+        // Remove ![封面](data:image/...) or ![封面](relative-path) from body
+        if (base64Prefix) {
+          // Match the exact base64 prefix to remove the right image
+          content = content.replace(new RegExp('\\n?!\\[([^\\]]*)\\]\\(' + base64Prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[^)]*\\)', 'g'), '');
+        }
+        // Also remove any remaining ![封面](data:image/...) lines
+        content = content.replace(/\n*!\[封面\]\(data:image\/[^)]+\)\n*/g, '\n');
+        fs2.writeFileSync(chPath, content, 'utf-8');
+      }
+
       return c.json({ ok: true });
     } catch(e) { return c.json({ error: e.message }, 500); }
   });

@@ -383,7 +383,7 @@ async function renderChapterContent() {
     h += '<input class="editor-title-input" id="cht" value="' + esc(ch.title) + '" placeholder="章节标题">';
     // 编辑模式下剥离 frontmatter，只放正文到 textarea，避免 base64 等元数据膨胀
     var displayBody = stripFrontmatter(body);
-    h += '<textarea class="editor-textarea" id="chb" placeholder="开始写作..." oninput="_draftDirty=true">' + esc(displayBody) + '</textarea>';
+    h += '<textarea class="editor-textarea" id="chb" placeholder="开始写作..." oninput="_draftDirty=true" oncontextmenu="handleTextareaContext(event)">' + esc(displayBody) + '</textarea>';
     // 缓存完整原文（含 frontmatter）到 hidden div，供草稿恢复和保存时使用
     h += '<input type="hidden" id="chb_full" value="' + esc(body) + '">';
   } else {
@@ -1387,6 +1387,26 @@ async function saveChapter() {
   }
 }
 
+// Save in preview mode (no textarea available — posts body directly)
+async function saveChapterPreview(body) {
+  try {
+    var r = await fetch(tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/chapters'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: _currentChapter.id, title: _currentChapter.title, content: body })
+    });
+    var j = await r.json();
+    if (j.ok) {
+      _currentChapter.body = body;
+      toast('💾 已保存');
+    } else {
+      toast('❌ 保存失败: ' + (j.error || '未知错误'));
+    }
+  } catch(e) {
+    toast('❌ 保存失败: ' + e.message);
+  }
+}
+
 // ====== 拖拽排序 ======
 var _dragChId = null;
 
@@ -1890,6 +1910,27 @@ async function insertImageToChapter() {
           ta.selectionStart = ta.selectionEnd = pos + imgMd.length;
           _draftDirty = true;
         }
+        // 同步 body 到 _currentChapter，再退出编辑模式渲染
+        var newBody = '';
+        if (ta) {
+          // 重建完整 body：frontmatter + textarea 内容
+          var fullEl = q('chb_full');
+          newBody = restoreFrontmatter(ta.value, fullEl ? fullEl.value : '');
+          _currentChapter.body = newBody;
+        }
+        // 立即保存到服务器
+        if (newBody) {
+          await fetch(tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/chapters'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: _currentChapter.id, title: _currentChapter.title, content: newBody })
+          });
+        }
+        stopDraftTimer();
+        _editing = false;
+        _localBodyDirty = true;
+        renderMainPanel();
+        renderChapterContent();
         toast("✓ 图片插入成功");
       } catch(ert) { toast("✓ 插入失败: " + ert.message); }
     };
@@ -1900,15 +1941,12 @@ async function insertImageToChapter() {
 
 //  删除图片
 async function deleteImageFromChapter(imgPath, imgType, imgAlt) {
-  console.log('[deleteImg] ENTER:', { imgPath: imgPath.substring ? imgPath.substring(0,60) : imgPath, imgType: imgType, imgAlt: imgAlt });
   if (!_currentProject || !_currentChapter) return;
   var isCover = (imgPath === 'cover');
-  _localBodyDirty = false;
-  console.log('[deleteImg] isCover:', isCover);
-  // Custom confirm
+
+  // 1. 确认删除
   var confirmed = await new Promise(function(resolve) {
     var overlay = document.createElement('div');
-    overlay.id = 'custom-confirm-overlay';
     overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center';
     var box = document.createElement('div');
     box.style.cssText = 'background:#2a2a2a;color:#eee;padding:20px 28px;border-radius:12px;font-size:14px;box-shadow:0 4px 24px rgba(0,0,0,0.5);text-align:center';
@@ -1918,135 +1956,143 @@ async function deleteImageFromChapter(imgPath, imgType, imgAlt) {
     overlay.appendChild(box);
     document.body.appendChild(overlay);
   });
-  console.log('[deleteImg] confirmed:', confirmed);
   if (!confirmed) return;
-  console.log('[deleteImg] starting deletion');
+
   try {
-    // Only delete server file if type is server
-    if (imgType === "server") {
-      await fetch(tu(A + "/api/project/" + encodeURIComponent(_currentProject.id) + "/delete-image"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chapterId: _currentChapter.id, imgPath: imgPath })
-      });
-    }
-    var ta = q("chb");
-    var fullEl = q("chb_full");
+    // 2. 获取当前 body（优先从 textarea，否则从 _currentChapter.body）
+    var ta = q('chb');
+    var fullEl = q('chb_full');
+    var body = '';
     if (ta) {
-      var bodyText = ta.value;
-      var fullText = fullEl ? fullEl.value : '';
-      // Case 1: cover image in frontmatter — remove the cover.image line or the cover block
-      if (isCover || imgPath === 'cover') {
-        // Remove cover.image line (multi-line format) or cover: image: ... (inline format)
-        var coverBlockRe = /(?:^|\n)(cover:\s*\n(?:\s+image:\s*[^\n]*\n(?:\s+[^\n]*\n)*)?(?:\s+\w+:|$))/;
-        var coverInlineRe = /(?:^|\n)\s*cover:\s*image:\s*[^\n]*/;
-        if (fullText && fullText !== bodyText) {
-          // Working from full text
-          fullText = fullText.replace(coverBlockRe, '\n').replace(coverInlineRe, '');
-          if (fullEl) fullEl.value = fullText;
-          ta.value = stripFrontmatter(fullText);
-        } else {
-          bodyText = bodyText.replace(coverBlockRe, '\n').replace(coverInlineRe, '');
-          if (fullText) fullText = fullText.replace(coverBlockRe, '\n').replace(coverInlineRe, '');
-          ta.value = bodyText;
-          if (fullEl) fullEl.value = restoreFrontmatter(bodyText, fullText || '');
-        }
-        _draftDirty = true;
-        _localBodyDirty = true;
-        toast("✓ 封面图片已删除");
-        var taSync = q("chb");
-        var fullElSync = q("chb_full");
-        if (taSync && fullElSync) {
-          _currentChapter.body = fullElSync.value;
-        } else if (taSync) {
-          _currentChapter.body = taSync.value;
-        }
-        await renderChapterContent();
-        return;
-      }
-      // Case 2: inline or server image in body text — remove the ![...](...) line
-      var ta = q("chb");
-      if (ta) {
-        // Edit mode: manipulate body text in textarea
-        var lines = bodyText.split("\n");
-        var newLines = [];
-        var removed = false;
-        for (var i = 0; i < lines.length; i++) {
-          if (!removed && lines[i].match(/!\[[^\]]*\]\(/)) {
-            if (imgType === 'inline' && imgAlt) {
-              if (lines[i].match(/!\[([^\]]*)\]\(/) && lines[i].indexOf('![' + imgAlt + '](') === 0) {
-                removed = true;
-                continue;
-              }
-            } else if (imgType === 'inline') {
-              removed = true;
-              continue;
-            } else if (lines[i].includes(imgPath)) {
-              removed = true;
-              continue;
-            }
-          }
-          newLines.push(lines[i]);
-        }
-        ta.value = newLines.join("\n");
-        _draftDirty = true;
-        toast("✓ 图片已删除");
-      } else {
-        // Preview mode: bodyText is undefined, but _currentChapter.body has the full content
-        // Remove the image line from _currentChapter.body directly
-        var body = _currentChapter.body || '';
-        console.log('[deleteImg] preview mode body preview:', body.substring(0, 200));
-        console.log('[deleteImg] preview mode body length:', body.length);
-        var lines = body.split("\n");
-        var newLines = [];
-        var removed = false;
-        for (var i = 0; i < lines.length; i++) {
-          if (!removed && lines[i].match(/!\[[^\]]*\]\(/)) {
-            console.log('[deleteImg] removing line:', lines[i].substring(0, 100));
-            // Remove first matching image line (should be the one right-clicked)
-            removed = true;
-            continue;
-          }
-          newLines.push(lines[i]);
-        }
-        var newBody = newLines.join("\n");
-        console.log('[deleteImg] new body preview:', newBody.substring(0, 200));
-        console.log('[deleteImg] new body length:', newBody.length);
-        _currentChapter.body = newBody;
-        toast("✓ 图片已删除");
-      }
+      // 编辑模式：从 textarea 取正文，从 hidden 取完整内容
+      body = fullEl ? fullEl.value : ta.value;
     } else {
-      // If not in editor (preview mode), handle cover or body image deletion
-      if (isCover) {
-        // Preview mode cover delete: strip cover: image: from frontmatter
-        var body = _currentChapter.body || '';
-        console.log('[deleteImg] preview cover delete, body length:', body.length);
-        var coverBlockRe = /(?:^|\n)(cover:\s*\n(?:\s+image:\s*[^\n]*\n(?:\s+[^\n]*\n)*)?(?:\s+\w+:|$))/;
-        var coverInlineRe = /(?:^|\n)\s*cover:\s*image:\s*[^\n]*/;
-        body = body.replace(coverBlockRe, '\n').replace(coverInlineRe, '');
-        _currentChapter.body = body;
-        console.log('[deleteImg] preview cover delete, new body preview:', body.substring(0, 200));
-        _localBodyDirty = true;
-        toast("✓ 封面图片已删除");
-      } else {
-        // If not in editor, just delete the server file
+      body = _currentChapter.body || '';
+    }
+
+    // 3. 删除图片
+    if (isCover) {
+      // 封面：移除 frontmatter 中的 cover.image 行
+      body = body.replace(/image:\s*["']?[^\n'"]+["']?\s*\n?/g, '');
+      body = body.replace(/cover:\s*\n(\s+\w+:)/g, '$1'); // 空 cover 块
+    }
+    // 移除正文中的 ![xxx](...) 图片行（匹配 alt 或全部 data: 图片）
+    var lines = body.split('\n');
+    var newLines = [];
+    var removed = false;
+    for (var i = 0; i < lines.length; i++) {
+      if (!removed && lines[i].match(/!\[[^\]]*\]\([^)]+\)/)) {
+        // 匹配到了图片行，跳过
+        removed = true;
+        continue;
       }
+      newLines.push(lines[i]);
     }
-    // Sync: if in edit mode, pull from DOM; preview mode already updated _currentChapter.body
-    var ta2 = q("chb");
-    var fullEl2 = q("chb_full");
-    if (ta2 && fullEl2) {
-      _currentChapter.body = fullEl2.value;
-    } else if (ta2) {
-      _currentChapter.body = ta2.value;
-    } else {
-      // Preview mode — _currentChapter.body was already updated above
+    body = newLines.join('\n');
+
+    // 4. 保存到服务器
+    _currentChapter.body = body;
+    _localBodyDirty = true;
+    var r = await fetch(tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/chapters'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: _currentChapter.id, title: _currentChapter.title, content: body })
+    });
+    var j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'save failed');
+
+    // 5. 刷新章节列表（更新字数）
+    var rc = await fetch(tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/chapters'));
+    _chapters = await rc.json();
+    _currentChapter = _chapters.find(function(c) { return c.id === _currentChapter.id; });
+
+    // 6. 更新编辑区
+    if (ta) {
+      ta.value = stripFrontmatter(body);
+      _draftDirty = false;
     }
-    await renderChapterContent();
-  } catch(e) { toast("✓ 删除失败: " + e.message); }
+
+    // 7. 重新渲染
+    _editing = false;
+    stopDraftTimer();
+    renderMainPanel();
+    renderChapterContent();
+    toast('✓ 图片已删除');
+  } catch(e) { toast('❌ 删除失败: ' + e.message); }
 }
 
-// ── 右键菜单删除图片 ──
+// ── 编辑模式：右键 textarea 中的图片行弹出删除菜单 ──
+function handleTextareaContext(e) {
+  var ta = q('chb');
+  if (!ta) return;
+  // Get the line under cursor
+  var pos = ta.selectionStart;
+  var text = ta.value;
+  var lineStart = text.lastIndexOf('\n', pos - 1) + 1;
+  var lineEnd = text.indexOf('\n', pos);
+  if (lineEnd < 0) lineEnd = text.length;
+  var line = text.substring(lineStart, lineEnd).trim();
+  
+  // Check if this line is an image reference: ![...](...)
+  var imgMatch = line.match(/^!\[([^\]]*)\]\(([^)]+)\)/);
+  if (!imgMatch) return; // Not an image line, let default context menu work
+  
+  e.preventDefault();
+  e.stopPropagation();
+  
+  var alt = imgMatch[1];
+  var src = imgMatch[2];
+  var isDataUrl = src.startsWith('data:');
+  var isServerPath = src.includes('文本附件');
+  
+  // Build floating menu
+  var menu = document.createElement('div');
+  menu.id = 'img-context-menu';
+  menu.style.cssText = 'position:fixed;background:#2a2a2a;color:#eee;padding:6px 0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.4);z-index:99999;min-width:120px;font-size:13px';
+  
+  var x = e.clientX > window.innerWidth - 130 ? e.clientX - 125 : e.clientX + 10;
+  var y = e.clientY > window.innerHeight - 50 ? e.clientY - 45 : e.clientY + 10;
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  
+  // Image preview (small thumbnail)
+  if (isDataUrl || isServerPath) {
+    var preview = document.createElement('div');
+    preview.style.cssText = 'padding:6px 12px;border-bottom:1px solid #444;text-align:center';
+    var img = document.createElement('img');
+    img.src = isDataUrl ? src : (tu(A + "/api/project/" + encodeURIComponent(_currentProject.id) + "/asset/" + encodeURIComponent(src)));
+    img.style.cssText = 'max-width:120px;max-height:80px;border-radius:4px;display:block;margin:0 auto';
+    preview.appendChild(img);
+    menu.appendChild(preview);
+  }
+  
+  // Delete button
+  var deleteItem = document.createElement('div');
+  deleteItem.style.cssText = 'padding:8px 16px;cursor:pointer;color:#ff6b6b;display:flex;align-items:center;gap:8px';
+  deleteItem.textContent = '🗑 删除图片';
+  deleteItem.onmouseenter = function() { this.style.background = 'rgba(255,107,107,0.15)'; };
+  deleteItem.onmouseleave = function() { this.style.background = 'transparent'; };
+  deleteItem.onclick = function(ev) {
+    ev.stopPropagation();
+    // Remove the image line from textarea
+    var before = text.substring(0, lineStart);
+    var after = text.substring(lineEnd);
+    // Clean up extra newlines
+    while (before.endsWith('\n\n')) before = before.slice(0, -1);
+    ta.value = before + after;
+    ta.selectionStart = ta.selectionEnd = lineStart;
+    _draftDirty = true;
+    removeMenu();
+    toast("✓ 图片已删除，保存后生效");
+  };
+  menu.appendChild(deleteItem);
+  
+  var removeMenu = function() { if (menu.parentNode) menu.remove(); };
+  setTimeout(function() { document.addEventListener('click', removeMenu, { once: true }); }, 0);
+  document.body.appendChild(menu);
+}
+
+// ── 右键菜单删除图片（预览模式）──
 function initImageContextMenu() {
   // main-panel may not exist yet if writing.js loaded before app.js init
   var mainPanel = document.getElementById('main-panel');
