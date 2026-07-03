@@ -330,7 +330,7 @@ async function execute(input) {
       };
 
       fs.mkdirSync(outDir, { recursive: true });
-      var outFile = path.join(outDir, gameTitle + "·Moyu场景.json");
+      const outFile = path.join(outDir, gameTitle + "·Moyu场景.json");
       fs.writeFileSync(outFile, JSON.stringify(moyuScript, null, 2), "utf-8");
 
       return { content: [{ type: "text", text: JSON.stringify({
