@@ -363,6 +363,7 @@ async function renderChapterContent() {
     h += '<button class="btn" onclick="enterEditMode()">✎ 编辑</button>';
   }
   h += '<button class="btn" onclick="runAnalysis()">🔍 分析</button>';
+  h += '<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="toggleGraphPanel()" title="关系图">🕸 关系图</button>';
   h += '</div>';
   h += '</div>';
 
@@ -378,6 +379,11 @@ async function renderChapterContent() {
   h += '<span id="ctx-detail" style="margin-left:auto;cursor:pointer;color:var(--accent);display:none" onclick="toggleCtxDetail()">展开</span>';
   h += '</div>';
   h += '<div id="ctx-detail-panel" style="display:none;margin-bottom:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--r);background:var(--bg-panel);font-size:11px;max-height:200px;overflow-y:auto"></div>';
+  // 关系图面板
+  h += '<div id="graph-panel" style="display:none;margin-bottom:12px">';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span style="font-size:12px;font-weight:600;color:var(--text-sub)">🕸 人物关系图</span><button class="btn btn-ghost" style="font-size:10px;padding:2px 8px" onclick="toggleGraphPanel()">✕ 关闭</button></div>';
+  h += '<div id="writingGraphContainer" style="width:100%;height:300px;background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--r);overflow:hidden"></div>';
+  h += '</div>';
   // 查找替换栏
   h += '<div id="findBar" style="display:none;background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;margin-bottom:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">';
   h += '<input id="findInput" type="text" placeholder="查找..." style="width:160px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px;font-family:var(--font-ui);outline:none">';
@@ -1520,6 +1526,124 @@ function loadCrossValidate() {
       el.innerHTML = h;
     })
     .catch(function(e) { el.innerHTML = '<div style="font-size:11px;color:var(--danger);padding:10px">❌ 加载失败: ' + (e.message || '') + '</div>'; });
+}
+
+var _writingGraphLoaded = false;
+
+function toggleGraphPanel() {
+  var panel = document.getElementById('graph-panel');
+  if (!panel) return;
+  if (panel.style.display === 'none') {
+    panel.style.display = '';
+    renderWritingGraph();
+  } else {
+    panel.style.display = 'none';
+    var c = document.getElementById('writingGraphContainer');
+    if (c && c._graph) { c._graph.destroy(); c._graph = null; }
+  }
+}
+
+function renderWritingGraph() {
+  var container = document.getElementById('writingGraphContainer');
+  if (!container || !_currentProject) return;
+
+  // 构建图谱元素
+  var els = [];
+  var charNames = {};
+  var charPalette = ['#AA5E43', '#8B6914', '#7A9B6D', '#B91C1C', '#6F6A60', '#7C3AED', '#DB8F2F', '#2FDB6F'];
+  var charIdx = 0;
+
+  // 人物节点
+  if (_cards) _cards.forEach(function(c) {
+    if (c.type === 'characters' && c.name) {
+      charNames[c.name] = true;
+      var color = charPalette[charIdx++ % charPalette.length];
+      els.push({ data: { id: 'ch_' + c.name, label: c.name, type: 'character', _color: color } });
+    }
+  });
+
+  // 地点节点
+  if (_markers) _markers.forEach(function(m) {
+    if (m.name) els.push({ data: { id: 'loc_' + m.name, label: m.name, type: 'location' } });
+  });
+
+  // 设定节点
+  if (_cards) _cards.forEach(function(c) {
+    if (c.type === 'world' && c.name) {
+      els.push({ data: { id: 'set_' + c.name, label: c.name, type: 'setting' } });
+    }
+  });
+
+  // 关系边：从人物卡 relationships
+  if (_cards) _cards.forEach(function(c) {
+    if (c.type === 'characters' && c.relationships) {
+      c.relationships.forEach(function(rel) {
+        if (rel.target && charNames[rel.target]) {
+          els.push({ data: { id: 'rel_' + c.name + '_' + rel.target, source: 'ch_' + c.name, target: 'ch_' + rel.target, label: rel.type || '关系', count: 1 } });
+        }
+      });
+    }
+  });
+
+  // 关系边：从 facts
+  if (_facts) _facts.forEach(function(f) {
+    if (f.type === 'relationship' && f.content && !f.deprecated_at) {
+      var found = [];
+      Object.keys(charNames).forEach(function(name) {
+        if (f.content.indexOf(name) > -1) found.push(name);
+      });
+      if (found.length >= 2) {
+        els.push({ data: { id: 'rel_' + f.id, source: 'ch_' + found[0], target: 'ch_' + found[1], label: '关系', count: 1 } });
+      }
+    }
+  });
+
+  if (els.length === 0) {
+    container.innerHTML = '<div class="empty-state" style="height:200px"><div class="title" style="font-size:12px">暂无关系数据</div><div class="desc" style="font-size:11px">添加人物卡和关系后自动生成</div></div>';
+    return;
+  }
+
+  // 加载 Cytoscape 并渲染
+  if (!window.cytoscape) {
+    var script = document.createElement('script');
+    script.src = 'https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js';
+    script.onload = function() { _writingGraphLoaded = true; doRenderWritingGraph(els); };
+    document.head.appendChild(script);
+  } else {
+    _writingGraphLoaded = true;
+    doRenderWritingGraph(els);
+  }
+}
+
+function doRenderWritingGraph(els) {
+  var container = document.getElementById('writingGraphContainer');
+  if (!container || !window.cytoscape) return;
+  if (container._graph) container._graph.destroy();
+
+  var cy = cytoscape({
+    container: container,
+    elements: els,
+    style: [
+      { selector: 'node', style: { 'label': 'data(label)', 'font-size': '10px', 'font-family': 'var(--font-ui)', 'color': 'var(--text)', 'text-valign': 'bottom', 'text-halign': 'center', 'text-margin-y': 6 } },
+      { selector: 'node[type="character"]', style: { 'background-color': 'data(_color)', 'width': 28, 'height': 28 } },
+      { selector: 'node[type="location"]', style: { 'background-color': '#8B6914', 'width': 20, 'height': 20 } },
+      { selector: 'node[type="setting"]', style: { 'background-color': '#6F6A60', 'width': 18, 'height': 18 } },
+      { selector: 'edge', style: { 'width': 1.5, 'line-color': 'rgba(170,94,67,0.25)', 'curve-style': 'bezier', 'label': 'data(label)', 'font-size': '9px', 'color': '#615B54', 'text-opacity': 1, 'text-background-opacity': 1, 'text-background-color': '#F5F0E6', 'text-background-padding': '2px 4px', 'text-background-shape': 'roundrectangle', 'text-valign': 'center', 'text-halign': 'center', 'overlay-padding': 0, 'overlay-opacity': 0 } }
+    ],
+    layout: { name: 'cose', animate: false, fit: true, padding: 30 },
+    zoomingEnabled: true, userZoomingEnabled: true
+  });
+  container._graph = cy;
+
+  // 点击高亮
+  cy.on('tap', 'node', function(evt) {
+    var node = evt.target;
+    cy.elements().removeClass('dimmed');
+    cy.elements().difference(node.neighborhood().add(node)).addClass('dimmed');
+  });
+  cy.on('tap', function(evt) {
+    if (evt.target === cy) cy.elements().removeClass('dimmed');
+  });
 }
 
 var _ctxBarData = null;
