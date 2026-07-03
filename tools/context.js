@@ -9,16 +9,18 @@ const parameters = {
   properties: {
     projectId: { type: "string", description: "项目 ID" },
     nextChapterTitle: { type: "string", description: "即将写的章节标题（可选，用于关键词匹配事实）" },
+    chapterBody: { type: "string", description: "正在写的章节正文（可选，用于正文级事实匹配和卡片筛选）" },
     maxFacts: { type: "number", description: "返回事实上限（可选，默认 50）" },
     maxPrevChapters: { type: "number", description: "前文章节数（可选，默认 3）" },
     currentChapterId: { type: "string", description: "当前正在写的章节 ID（用于章槛过滤，可选）" },
+    filterCards: { type: "boolean", description: "是否按正文筛选卡片（可选，默认 false）" },
   },
   required: ["projectId"],
 };
 
 async function execute(input) {
   try {
-    const { projectId, nextChapterTitle, maxFacts = 50, maxPrevChapters = 3, currentChapterId } = input;
+    const { projectId, nextChapterTitle, chapterBody = "", maxFacts = 50, maxPrevChapters = 3, currentChapterId, filterCards = false } = input;
     const { safeProjectId, getDataDir } = await import("../lib/config.js");
     const pid = safeProjectId(projectId); if (!pid) throw new Error("无效项目 ID");
     const dataDir = await getDataDir();
@@ -54,7 +56,8 @@ async function execute(input) {
         ctx.previousChapters.push({
           id: ch.id,
           title: ch.title,
-          summary: body.slice(0, 500) + (body.length > 500 ? "..." : ""),
+          // P0.2-A: 优先用缓存的 summary，fallback 到前 200 字
+          summary: ch.summary || (body.slice(0, 200) + (body.length > 200 ? "..." : "")),
         });
       }
     }
@@ -86,13 +89,24 @@ async function execute(input) {
         .replace(/[第章节卷部]/g, "")
         .split(/[\s,，、]+/).filter(Boolean);
 
+      // P0.2-B: 正文级事实匹配 — 从正文中提取角色/地点名作为额外关键词
+      let bodyKeywords = [];
+      if (chapterBody) {
+        ctx.cards.forEach(c => {
+          if (c.name && c.name.length >= 2 && chapterBody.includes(c.name)) {
+            bodyKeywords.push(c.name);
+          }
+        });
+      }
+      const allKeywords = [...new Set([...keywords, ...bodyKeywords])];
+
       let keywordFacts = allFacts.filter(f => f.constant !== true
         && (!f.chapter_gate || currentOrder >= (parseInt(f.chapter_gate) || 0)));
 
-      if (keywords.length > 0) {
+      if (allKeywords.length > 0) {
         keywordFacts = keywordFacts.filter(f => {
           const text = (f.content + " " + (f.tags || []).join(" ")).toLowerCase();
-          return keywords.some(kw => text.includes(kw.toLowerCase()));
+          return allKeywords.some(kw => text.includes(kw.toLowerCase()));
         });
       }
 
@@ -112,6 +126,13 @@ async function execute(input) {
         constant: f.constant || false,
         tags: f.tags,
       }));
+    }
+
+    // P0.2-C: 卡片筛选 — 可选只返回正文中提到的角色和世界观卡片
+    if (filterCards && chapterBody) {
+      ctx.cards = ctx.cards.filter(c =>
+        chapterBody.includes(c.name) || (nextChapterTitle || "").includes(c.name)
+      );
     }
 
     // ── 格式化输出 ──
