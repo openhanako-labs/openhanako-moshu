@@ -69,6 +69,7 @@ async function execute(input) {
       cards,
       facts,
       totalWords,
+      projDir,
     });
 
     const outFile = path.join(outDir, `dossier.html`);
@@ -86,7 +87,7 @@ async function execute(input) {
 }
 
 function buildHTML(data) {
-  const { title, classification, project, chapters, chContent, cards, facts, totalWords } = data;
+  const { title, classification, project, chapters, chContent, cards, facts, totalWords, projDir } = data;
   const now = new Date().toISOString().slice(0, 10);
 
   // 生成档案元数据
@@ -114,7 +115,7 @@ function buildHTML(data) {
     <span class="dossier-title">${esc(ch.title)}</span>
     <span class="dossier-meta">${words} 字 · ${ch.status}</span>
   </div>
-  <div class="dossier-body">${mdToHTML(body)}</div>
+  <div class="dossier-body">${mdToHTML(body, projDir)}</div>
 </div>`;
   }
 
@@ -302,9 +303,32 @@ ${factHTML}` : ""}
 </html>`;
 }
 
-// 简易 Markdown → HTML 转换
-function mdToHTML(md) {
-  return esc(md)
+// 简易 Markdown → HTML 转换（支持图片）
+function mdToHTML(md, projDir) {
+  if (!md) return '';
+  // 剥离 frontmatter
+  var body = md.replace(/^---[\s\S]*?---\s*/g, '');
+  body = esc(body);
+  // 图片：![alt](path) → <img>，相对路径转 base64
+  body = body.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(match, alt, src) {
+    var rawSrc = src.replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+    if (rawSrc.startsWith('data:')) {
+      return '<img src="' + rawSrc + '" alt="' + alt + '" style="max-width:100%;height:auto;border-radius:4px;margin:8px 0;display:block">';
+    }
+    if (projDir) {
+      try {
+        var imgPath = path.join(projDir, 'chapters', rawSrc);
+        if (fs.existsSync(imgPath)) {
+          var data = fs.readFileSync(imgPath);
+          var ext = rawSrc.split('.').pop().toLowerCase();
+          var mime = {png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp'}[ext] || 'image/png';
+          return '<img src="data:' + mime + ';base64,' + data.toString('base64') + '" alt="' + alt + '" style="max-width:100%;height:auto;border-radius:4px;margin:8px 0;display:block">';
+        }
+      } catch(e) {}
+    }
+    return '<img src="' + rawSrc + '" alt="' + alt + '" style="max-width:100%;height:auto;border-radius:4px;margin:8px 0;display:block">';
+  });
+  return body
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/\*(.+?)\*/g, "<em>$1</em>")
     .replace(/```([\s\S]*?)```/g, "<pre>$1</pre>")

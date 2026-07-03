@@ -257,7 +257,25 @@ async function execute(input) {
     }
 
     // ── MODE: linear ── (原有逻辑)
-    const nodes = chWithBody.map(ch => ({ id: ch.id, order: ch.order, title: ch.title, text: ch.text, wordCount: ch.wordCount || 0 }));
+    // 预处理章节正文：把图片路径转为 base64 data URL
+    const processedNodes = chWithBody.map(ch => {
+      var body = (ch.text || '').replace(/^---[\s\S]*?---\s*/g, '');
+      body = body.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(match, alt, src) {
+        if (src.startsWith('data:')) return match;
+        try {
+          var imgPath = path.join(projDir, 'chapters', src);
+          if (fs.existsSync(imgPath)) {
+            var data = fs.readFileSync(imgPath);
+            var ext = src.split('.').pop().toLowerCase();
+            var mime = {png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp'}[ext] || 'image/png';
+            return '![' + alt + '](data:' + mime + ';base64,' + data.toString('base64') + ')';
+          }
+        } catch(e) {}
+        return match;
+      });
+      return { id: ch.id, order: ch.order, title: ch.title, text: body, wordCount: ch.wordCount || 0 };
+    });
+    const nodes = processedNodes;
     const totalWords = nodes.reduce((s, n) => s + n.wordCount, 0);
     const jsonData = { title: gameTitle, projectId, chapters: nodes, totalWords };
 
@@ -335,13 +353,29 @@ const themeBtn = document.getElementById('themeBtn');
 const themes = ${JSON.stringify(themes)};
 let currentTheme = '${theme}';
 
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function renderBody(text){
+  if(!text)return'';
+  var h=esc(text);
+  h=h.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,function(m,alt,src){
+    return '<img src="'+src+'" alt="'+alt+'" style="max-width:100%;height:auto;border-radius:4px;margin:8px 0;display:block">';
+  });
+  h=h.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g,'<em>$1</em>')
+    .replace(/^### (.+)$/gm,'<h4 style="margin:12px 0 6px">$1</h4>')
+    .replace(/^## (.+)$/gm,'<h3 style="margin:16px 0 8px">$1</h3>')
+    .replace(/^# (.+)$/gm,'<h2 style="margin:20px 0 10px">$1</h2>')
+    .replace(/\n\n/g,'</p><p>')
+    .replace(/\n/g,'<br>');
+  return '<p>'+h+'</p>';
+}
 function renderChapter(idx) {
   const ch = STORY.chapters[idx];
   if (!ch) return;
   container.innerHTML = '<div class="chapter chapter-enter">'
     + '<div class="chapter-num">第 ' + (idx + 1) + ' 章</div>'
     + '<div class="chapter-title">' + esc(ch.title) + '</div>'
-    + '<div class="chapter-body">' + esc(ch.text) + '</div>'
+    + '<div class="chapter-body">' + renderBody(ch.text) + '</div>'
     + '</div>';
   currentIdx = idx;
   prevBtn.disabled = idx <= 0;
