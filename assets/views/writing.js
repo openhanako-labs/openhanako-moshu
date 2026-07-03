@@ -367,6 +367,16 @@ async function renderChapterContent() {
 
   h += '<div class="panel-body">';
   h += '<div class="editor-wrap fade-in">';
+  // 上下文命中信息条
+  h += '<div id="ctx-bar" style="display:flex;align-items:center;gap:10px;padding:6px 10px;margin-bottom:12px;border:1px solid var(--border);border-radius:var(--r);background:var(--bg-panel);font-size:11px;color:var(--text-muted);transition:opacity .3s">';
+  h += '<span style="color:var(--text-sub);font-weight:600">上下文</span>';
+  h += '<span id="ctx-cards">📋 -</span>';
+  h += '<span id="ctx-facts">📌 -</span>';
+  h += '<span id="ctx-prev">📝 -</span>';
+  h += '<span id="ctx-graph">🔗 -</span>';
+  h += '<span id="ctx-detail" style="margin-left:auto;cursor:pointer;color:var(--accent);display:none" onclick="toggleCtxDetail()">展开</span>';
+  h += '</div>';
+  h += '<div id="ctx-detail-panel" style="display:none;margin-bottom:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--r);background:var(--bg-panel);font-size:11px;max-height:200px;overflow-y:auto"></div>';
   // 查找替换栏
   h += '<div id="findBar" style="display:none;background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;margin-bottom:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">';
   h += '<input id="findInput" type="text" placeholder="查找..." style="width:160px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px;font-family:var(--font-ui);outline:none">';
@@ -397,6 +407,8 @@ async function renderChapterContent() {
   h += '</div></div>';
 
   q('main-panel').innerHTML = h;
+  // 异步加载上下文命中信息
+  setTimeout(loadContextBar, 100);
 }
 
 // ── Frontmatter 剥离/还原工具 ──
@@ -1435,6 +1447,72 @@ function loadCrossValidate() {
       el.innerHTML = h;
     })
     .catch(function(e) { el.innerHTML = '<div style="font-size:11px;color:var(--danger);padding:10px">❌ 加载失败: ' + (e.message || '') + '</div>'; });
+}
+
+var _ctxBarData = null;
+
+function loadContextBar() {
+  if (!_currentProject || !_currentChapter) return;
+  var ch = _currentChapter;
+  var url = tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/context-preview?chapterId=' + encodeURIComponent(ch.id) + '&title=' + encodeURIComponent(ch.title || ''));
+  fetch(url)
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) return;
+      _ctxBarData = d;
+      var cardsEl = document.getElementById('ctx-cards');
+      var factsEl = document.getElementById('ctx-facts');
+      var prevEl = document.getElementById('ctx-prev');
+      var graphEl = document.getElementById('ctx-graph');
+      var detailEl = document.getElementById('ctx-detail');
+      if (cardsEl) cardsEl.innerHTML = '📋 ' + d.cards.matched + '/' + d.cards.total + ' 卡片';
+      if (factsEl) factsEl.innerHTML = '📌 ' + (d.facts.constant + d.facts.keywordMatched) + '/' + d.facts.total + ' 事实';
+      if (prevEl) prevEl.innerHTML = '📝 ' + d.previousChapters + ' 前文';
+      if (graphEl) graphEl.innerHTML = '🔗 ' + d.graphEdges + ' 关系';
+      if (detailEl) detailEl.style.display = '';
+    })
+    .catch(function() {});
+}
+
+function toggleCtxDetail() {
+  var panel = document.getElementById('ctx-detail-panel');
+  var btn = document.getElementById('ctx-detail');
+  if (!panel || !_ctxBarData) return;
+  if (panel.style.display === 'none') {
+    var d = _ctxBarData;
+    var h = '';
+    // 卡片
+    h += '<div style="margin-bottom:8px"><span style="font-weight:600;color:var(--text-sub)">📋 卡片 (' + d.cards.matched + '/' + d.cards.total + ')</span></div>';
+    if (d.cards.matchedItems && d.cards.matchedItems.length > 0) {
+      h += '<div style="margin-bottom:4px"><span style="color:var(--success)">已命中:</span> ';
+      d.cards.matchedItems.forEach(function(c) { h += '<span class="tag" style="font-size:10px;border-color:var(--success);color:var(--success)">' + esc(c.name) + '</span> '; });
+      h += '</div>';
+    }
+    if (d.cards.unmatchedItems && d.cards.unmatchedItems.length > 0) {
+      h += '<div><span style="color:var(--text-muted)">未命中:</span> ';
+      d.cards.unmatchedItems.forEach(function(c) { h += '<span class="tag" style="font-size:10px">' + esc(c.name) + '</span> '; });
+      h += '</div>';
+    }
+    // 事实
+    h += '<div style="margin-top:10px;margin-bottom:4px"><span style="font-weight:600;color:var(--text-sub)">📌 事实 (' + (d.facts.constant + d.facts.keywordMatched) + '/' + d.facts.total + ')</span></div>';
+    if (d.facts.constant > 0) {
+      h += '<div style="margin-bottom:2px"><span style="color:var(--accent)">⚓ 常驻 ×' + d.facts.constant + '</span></div>';
+    }
+    if (d.facts.matchedItems && d.facts.matchedItems.length > 0) {
+      h += '<div style="margin-bottom:2px"><span style="color:var(--success)">关键词命中 ×' + d.facts.keywordMatched + ':</span></div>';
+      d.facts.matchedItems.slice(0, 5).forEach(function(f) { h += '<div style="color:var(--text-muted);padding-left:12px">• ' + esc(f.content.substring(0, 50)) + '</div>'; });
+      if (d.facts.matchedItems.length > 5) h += '<div style="color:var(--text-muted);padding-left:12px">... +' + (d.facts.matchedItems.length - 5) + ' 条</div>';
+    }
+    if (d.facts.unmatched > 0) {
+      h += '<div style="color:var(--text-muted)">未匹配 ×' + d.facts.unmatched + '</div>';
+    }
+    panel.innerHTML = h;
+    panel.style.display = '';
+    btn.textContent = '收起';
+  } else {
+    panel.style.display = 'none';
+    btn.textContent = '展开';
+  }
 }
 
 async function saveChapter() {

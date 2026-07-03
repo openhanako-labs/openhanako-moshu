@@ -158,6 +158,109 @@ export default function (app, ctx) {
       return c.json({ error: e.message }, 500);
     }
   });
+  // 上下文预览 — 返回结构化上下文命中数据
+  app.get("/api/project/:id/context-preview", async (c) => {
+    const id = safeProjectId(c.req.param("id"));
+    if (!id) return c.json({ error: "bad id" }, 400);
+    try {
+      const p2 = path.join(dd, "projects", id);
+      const chapterId = c.req.query("chapterId") || "";
+      const chapterTitle = c.req.query("title") || "";
+
+      // 加载卡片
+      var allCards = [];
+      for (var t of ["characters", "world", "style"]) {
+        var cp = path.join(p2, "cards", t + ".json");
+        if (fs.existsSync(cp)) {
+          var d = JSON.parse(fs.readFileSync(cp, "utf-8"));
+          if (d.cards) allCards = allCards.concat(d.cards.map(function(c) { c.type = t; return c; }));
+        }
+      }
+
+      // 加载事实
+      var allFacts = [];
+      var fp = path.join(p2, "facts.jsonl");
+      if (fs.existsSync(fp)) {
+        allFacts = fs.readFileSync(fp, "utf-8").split("\n").filter(function(l) { return l.trim(); }).map(function(l) { return JSON.parse(l); }).filter(function(f) { return !f.deprecated_at && !f.overridden_by; });
+      }
+
+      // 加载章节
+      var chapters = [];
+      var chp = path.join(p2, "chapters.json");
+      if (fs.existsSync(chp)) {
+        var idx = JSON.parse(fs.readFileSync(chp, "utf-8"));
+        chapters = idx.chapters || [];
+      }
+
+      // 当前章节序号
+      var currentOrder = Infinity;
+      if (chapterId) {
+        var cur = chapters.find(function(c) { return c.id === chapterId; });
+        if (cur) currentOrder = cur.order;
+      }
+
+      // 章槛过滤
+      var gatedFacts = allFacts.filter(function(f) {
+        return !f.chapter_gate || currentOrder >= (parseInt(f.chapter_gate) || 0);
+      });
+
+      var constantFacts = gatedFacts.filter(function(f) { return f.constant === true; });
+      var nonConstant = gatedFacts.filter(function(f) { return f.constant !== true; });
+
+      // 关键词匹配
+      var keywords = (chapterTitle || "").replace(/[第章节卷部]/g, "").split(/[\s,，、]+/).filter(Boolean);
+      var matchedFacts = [];
+      var unmatchedFacts = [];
+      if (keywords.length > 0) {
+        nonConstant.forEach(function(f) {
+          var text = (f.content + " " + (f.tags || []).join(" ")).toLowerCase();
+          if (keywords.some(function(kw) { return text.includes(kw.toLowerCase()); })) {
+            matchedFacts.push(f);
+          } else {
+            unmatchedFacts.push(f);
+          }
+        });
+      } else {
+        unmatchedFacts = nonConstant;
+      }
+
+      // 卡片匹配（简化：当前正文/标题中提到的角色/世界观）
+      var currentBody = "";
+      if (chapterId) {
+        var bdp = path.join(p2, "chapters", chapterId + ".md");
+        if (fs.existsSync(bdp)) currentBody = fs.readFileSync(bdp, "utf-8");
+      }
+      var matchedCards = allCards.filter(function(c) {
+        return currentBody.includes(c.name) || chapterTitle.includes(c.name);
+      });
+      var unmatchedCards = allCards.filter(function(c) {
+        return !currentBody.includes(c.name) && !chapterTitle.includes(c.name);
+      });
+
+      // 前文数
+      var prevCount = Math.min(3, chapters.filter(function(c) { return c.order < currentOrder; }).length);
+
+      // 实体关系
+      var edgeCount = 0;
+      var elp = path.join(p2, "graph", "entity_links.jsonl");
+      if (fs.existsSync(elp)) {
+        edgeCount = fs.readFileSync(elp, "utf-8").split("\n").filter(function(l) { return l.trim(); }).length;
+      }
+
+      return c.json({
+        cards: { total: allCards.length, matched: matchedCards.length, unmatched: unmatchedCards.length,
+          matchedItems: matchedCards.map(function(c) { return { name: c.name, type: c.type }; }),
+          unmatchedItems: unmatchedCards.map(function(c) { return { name: c.name, type: c.type }; }) },
+        facts: { total: allFacts.length, constant: constantFacts.length, keywordMatched: matchedFacts.length, unmatched: unmatchedFacts.length,
+          matchedItems: matchedFacts.map(function(f) { return { content: f.content, type: f.type, priority: f.priority || 0 }; }),
+          constantItems: constantFacts.map(function(f) { return { content: f.content, type: f.type }; }) },
+        previousChapters: prevCount,
+        graphEdges: edgeCount
+      });
+    } catch (e) {
+      return c.json({ error: e.message }, 500);
+    }
+  });
   // 导出 HTML（原 EPUB 按钮）
   app.get("/api/project/:id/export/epub", async c => {
     const id = safeProjectId(c.req.param("id"));
