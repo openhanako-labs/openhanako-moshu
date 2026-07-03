@@ -10,7 +10,7 @@ const parameters = {
     outputDir: { type: "string", description: "输出目录（可选）" },
     title: { type: "string", description: "游戏标题（可选）" },
     theme: { type: "string", enum: ["terminal", "paper", "dark"], description: "主题（可选，默认 terminal），仅线性模式" },
-    mode: { type: "string", enum: ["linear", "game", "twine"], description: "导出模式：linear=线性翻页阅读器 / game=互动文游（分支剧情）/ twine=SugarCube 互动小说。默认 linear" },
+    mode: { type: "string", enum: ["linear", "game", "twine", "moyu"], description: "导出模式：linear=线性翻页阅读器 / game=互动文游（分支剧情）/ twine=SugarCube 互动小说 / moyu=Moyu 场景脚本。默认 linear" },
     gameJson: { type: "string", description: "互动文游 JSON 剧本（mode=game 时使用，提供后直接打包 HTML）" },
   }, required: ["projectId"],
 };
@@ -254,6 +254,92 @@ async function execute(input) {
       return {
         content: [{ type: "text", text: JSON.stringify({ ok: true, message: "📦 剧本素材包已生成，请用 Story-to-Game 技能改编为互动文游 JSON。完成后告诉我 JSON 内容以打包 HTML。", file: path.join(outDir, gameTitle + "·素材包.json"), stats: { mode: "game", chapters: chWithBody.length, characters: cards.filter(c => c.type === "characters").length, worldCards: cards.filter(c => c.type === "world").length, facts: facts.length, markers: markers.length, totalWords: chWithBody.reduce((s, c) => s + (c.wordCount || 0), 0) } }, null, 2) }],
       };
+    }
+
+    // ── MODE: moyu ── 场景脚本适配器
+    if (mode === "moyu") {
+      // 加载卡片和事实
+      const cardsPath = path.join(projDir, "cards");
+      var charList = [];
+      for (const t of ["characters", "world", "style"]) {
+        var cp2 = path.join(cardsPath, t + ".json");
+        if (fs.existsSync(cp2)) {
+          var cd = JSON.parse(fs.readFileSync(cp2, "utf-8"));
+          if (cd.cards) charList = charList.concat(cd.cards.map(function(c) { c.type = t; return c; }));
+        }
+      }
+      var charNames = charList.filter(c => c.type === "characters").map(c => c.name);
+
+      // 将章节转换为场景脚本
+      var scenes = [];
+      chWithBody.forEach(function(ch, idx) {
+        var body = (ch.text || "").replace(/^---[\s\S]*?---\s*/g, "");
+        // 按段落分割为对话/旁白
+        var lines = body.split(/\n+/).filter(function(l) { return l.trim(); });
+        var dialogues = [];
+        var narration = "";
+        lines.forEach(function(line) {
+          // 匹配对话格式：角色名：“文本” 或 角色名：文本
+          var dm = line.match(/^[：:】](.+?)[：:]\s*(.+)/);
+          if (dm) {
+            var speaker = dm[1].trim();
+            // 模糊匹配角色名
+            var matched = charNames.find(function(n) { return speaker.includes(n) || n.includes(speaker); });
+            dialogues.push({
+              speaker: matched || speaker,
+              text: dm[2].trim().replace(/[“”"]/g, ""),
+              narration: false
+            });
+          } else if (line.match(/^[#【]/)) {
+            // 场景描述行
+            narration += line.replace(/^[#【】]/g, "").trim() + "\n";
+          } else {
+            // 旁白/描述
+            dialogues.push({ speaker: "", text: line.trim(), narration: true });
+          }
+        });
+
+        // 检测出场人物
+        var presentChars = charNames.filter(function(n) { return body.includes(n); });
+
+        scenes.push({
+          id: "scene_" + String(idx + 1).padStart(3, "0"),
+          chapterId: ch.id,
+          title: ch.title,
+          background: narration.trim().slice(0, 200) || ch.title,
+          location: ch.volume || "",
+          characters: presentChars.map(function(n, i) {
+            return { name: n, position: i < 2 ? (i === 0 ? "left" : "right") : "center", expression: "normal" };
+          }),
+          dialogues: dialogues,
+          choices: idx < chWithBody.length - 1 ? [{ text: "继续", nextScene: "scene_" + String(idx + 2).padStart(3, "0") }] : []
+        });
+      });
+
+      var moyuScript = {
+        format: "moyu-scene-v1",
+        title: gameTitle,
+        projectId: pid,
+        summary: project.summary || "",
+        totalScenes: scenes.length,
+        characters: charList.filter(c => c.type === "characters").map(c => ({
+          name: c.name, aliases: c.content ? (c.content["别名"] || "").split(/[、,，]/).filter(Boolean) : [], description: c.content ? c.content["描述"] || c.content["性格"] || "" : ""
+        })),
+        scenes: scenes,
+        _note: "Moyu 场景脚本 v1 骨架格式。当 Moyu 核心文档可用后，可调整字段映射。"
+      };
+
+      fs.mkdirSync(outDir, { recursive: true });
+      var outFile = path.join(outDir, gameTitle + "·Moyu场景.json");
+      fs.writeFileSync(outFile, JSON.stringify(moyuScript, null, 2), "utf-8");
+
+      return { content: [{ type: "text", text: JSON.stringify({
+        ok: true,
+        message: `✅ 已导出 Moyu 场景脚本（${scenes.length} 场景，${moyuScript.characters.length} 角色）`,
+        file: outFile,
+        format: "moyu-scene-v1",
+        stats: { scenes: scenes.length, characters: moyuScript.characters.length, dialogues: scenes.reduce((s,sc) => s + sc.dialogues.length, 0) }
+      }, null, 2) }] };
     }
 
     // ── MODE: linear ── (原有逻辑)
