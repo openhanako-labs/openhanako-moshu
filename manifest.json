@@ -45,7 +45,8 @@
       { "source": "tools/diff.js" },
       { "source": "tools/get-asset.js" },
       { "source": "tools/txt2world.js" },
-      { "source": "tools/multi-agent.js" }
+      { "source": "tools/multi-agent.js" },
+      { "source": "tools/rpg-export.js" }
     ],
     "page": {
       "title": { "zh": "墨述", "en": "Ink Narrative" },
