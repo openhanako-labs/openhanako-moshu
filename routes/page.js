@@ -179,6 +179,42 @@ export default function (app, ctx) {
       return c.json(addThread(dd, id, { title: b.title, type: b.type, status: b.status, description: b.description, plantedChapter: b.plantedChapter, echoedChapters: b.echoedChapters, resolvedChapter: b.resolvedChapter }));
     } catch(e) { return c.json({ error: e.message }, 500); }
   });
+  // txt2world API
+  app.post("/api/project/:id/txt2world", async (c) => {
+    const id = safeProjectId(c.req.param("id"));
+    if (!id) return c.json({ error: "bad id" }, 400);
+    try {
+      const b = await c.req.json();
+      const text = b.text || "";
+      if (!text || text.length < 10) return c.json({ error: "文本太短" }, 400);
+      const p2 = path.join(dd, "projects", id);
+      // 保存文本
+      fs.writeFileSync(path.join(p2, "import-source.txt"), text, "utf-8");
+      // 分块
+      var chunks = [];
+      var paragraphs = text.split(/\n\s*\n/);
+      var current = "";
+      for (var pi = 0; pi < paragraphs.length; pi++) {
+        if (current.length + paragraphs[pi].length > 1500 && current) {
+          chunks.push(current);
+          current = paragraphs[pi];
+        } else { current += (current ? "\n\n" : "") + paragraphs[pi]; }
+      }
+      if (current) chunks.push(current);
+      // 保存状态
+      fs.writeFileSync(path.join(p2, "import-state.json"), JSON.stringify({ totalChunks: chunks.length, processed: [], createdAt: new Date().toISOString() }, null, 2), "utf-8");
+      return c.json({ ok: true, totalChunks: chunks.length, chunks: chunks.map(function(c, i) { return { index: i, preview: c.slice(0, 80) + "...", length: c.length }; }) });
+    } catch(e) { return c.json({ error: e.message }, 500); }
+  });
+  app.get("/api/project/:id/txt2world/status", async (c) => {
+    const id = safeProjectId(c.req.param("id"));
+    if (!id) return c.json({ error: "bad id" }, 400);
+    try {
+      var sp = path.join(dd, "projects", id, "import-state.json");
+      if (!fs.existsSync(sp)) return c.json({ ok: true, status: "无导入任务" });
+      return c.json(JSON.parse(fs.readFileSync(sp, "utf-8")));
+    } catch(e) { return c.json({ error: e.message }, 500); }
+  });
   // 上下文预览 — 返回结构化上下文命中数据
   app.get("/api/project/:id/context-preview", async (c) => {
     const id = safeProjectId(c.req.param("id"));

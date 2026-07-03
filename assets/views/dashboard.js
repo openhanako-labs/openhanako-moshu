@@ -139,6 +139,17 @@ async function openDashboard(id) {
   h += '<button class="btn btn-ghost" onclick="exportTwineStory()" style="flex:1;min-width:140px">📜 SugarCube</button>';
   h += '</div>';
 
+  // TXT 导入面板
+  h += '<div style="margin-bottom:16px;border:1px solid var(--border);border-radius:var(--rm);padding:12px 16px;background:var(--bg-panel)">';
+  h += '<div style="font-size:12px;font-weight:600;color:var(--text-sub);margin-bottom:8px">📥 TXT → 世界观导入</div>';
+  h += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">';
+  h += '<input type="file" id="txtImportFile" accept=".txt,.md" style="font-size:11px;color:var(--text-muted);flex:1;min-width:200px">';
+  h += '<button class="btn btn-primary" style="font-size:11px;padding:4px 12px" onclick="doTxtImport()">📤 分块</button>';
+  h += '<span id="txtImportStatus" style="font-size:11px;color:var(--text-muted)"></span>';
+  h += '</div>';
+  h += '<div id="txtImportChunks" style="margin-top:8px"></div>';
+  h += '</div>';
+
   // RPG世界状态面板
   var charCount = cd.filter(function(c) { return c.type === 'characters'; }).length;
   var worldCount = cd.filter(function(c) { return c.type === 'world'; }).length;
@@ -1602,6 +1613,39 @@ async function exportTwineStory() {
 // ═══════════════════════════════════
 //  BRANCH TREE VISUALIZATION
 // ═══════════════════════════════════
+
+function doTxtImport() {
+  var fileEl = document.getElementById('txtImportFile');
+  var statusEl = document.getElementById('txtImportStatus');
+  var chunksEl = document.getElementById('txtImportChunks');
+  if (!fileEl || !fileEl.files[0]) { if (statusEl) statusEl.textContent = '请选择文件'; return; }
+  var file = fileEl.files[0];
+  var reader = new FileReader();
+  reader.onload = async function(ev) {
+    var text = ev.target.result;
+    if (statusEl) statusEl.textContent = '⏳ 分块中...';
+    try {
+      var r = await fetch(tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/txt2world'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: text })
+      });
+      var d = await r.json();
+      if (d.error) { if (statusEl) statusEl.textContent = '❌ ' + d.error; return; }
+      if (statusEl) statusEl.textContent = '✅ 已分块为 ' + d.totalChunks + ' 段。请在聊天中告知助手逐块提取。';
+      // 显示分块列表
+      var h = '';
+      d.chunks.forEach(function(c) {
+        h += '<div style="font-size:10px;color:var(--text-muted);padding:2px 0;border-bottom:1px solid var(--border-light)">';
+        h += '块 ' + c.index + ' · ' + c.length + '字 · ' + esc(c.preview);
+        h += '</div>';
+      });
+      h += '<div style="margin-top:6px;font-size:10px;color:var(--accent)">💡 对助手说：“请用 txt2world 工具逐块提取第 0 块”</div>';
+      if (chunksEl) chunksEl.innerHTML = h;
+    } catch(e) { if (statusEl) statusEl.textContent = '❌ ' + e.message; }
+  };
+  reader.readAsText(file, 'UTF-8');
+}
 
 function showBranchTree() {
   var overlay = document.createElement('div');
