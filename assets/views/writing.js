@@ -1215,6 +1215,7 @@ function runAnalysis() {
   h += '<button class="btn btn-sm" onclick="switchAnalysisTab(\'hook\',this)" style="font-size:11px;padding:3px 10px">📎 钩子</button>';
   h += '<button class="btn btn-sm" onclick="switchAnalysisTab(\'ai\',this)" style="font-size:11px;padding:3px 10px">⚠️ AI味</button>';
   h += '<button class="btn btn-sm" onclick="switchAnalysisTab(\'style\',this)" style="font-size:11px;padding:3px 10px">🎨 文风</button>';
+  h += '<button class="btn btn-sm" onclick="switchAnalysisTab(\'cross\',this)" style="font-size:11px;padding:3px 10px">🔗 交叉验证</button>';
   h += '</div>';
   h += '<div id="analysis-content">';
   h += '</div>';
@@ -1259,6 +1260,11 @@ function runAnalysis() {
   h += '<div style="font-size:11px;color:var(--text-muted);padding:20px;text-align:center">加载中...</div>';
   h += '</div>';
 
+  // 交叉验证
+  h += '<div id="tab-cross" style="display:none">';
+  h += '<div style="font-size:11px;color:var(--text-muted);padding:20px;text-align:center">点击此页加载交叉验证...</div>';
+  h += '</div>';
+
   h += '</div>'; // close analysis-content
 
   // 插入到编辑器后面
@@ -1277,7 +1283,7 @@ function switchAnalysisTab(tab, btn) {
   btns.forEach(function(b) { b.style.background = 'transparent'; b.style.color = 'var(--text-muted)'; b.classList.remove('active'); });
   if (btn) { btn.style.background = 'var(--accent)'; btn.style.color = '#fff'; btn.classList.add('active'); }
   // 内容切换
-  var contents = ['tab-overview', 'tab-hook', 'tab-ai', 'tab-style'];
+  var contents = ['tab-overview', 'tab-hook', 'tab-ai', 'tab-style', 'tab-cross'];
   contents.forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.style.display = (id === 'tab-' + tab) ? '' : 'none';
@@ -1285,6 +1291,10 @@ function switchAnalysisTab(tab, btn) {
   // 文风 tab 懒加载
   if (tab === 'style' && !document.getElementById('tab-style').getAttribute('data-loaded')) {
     loadStyleAnalysis();
+  }
+  // 交叉验证 tab 懒加载
+  if (tab === 'cross' && !document.getElementById('tab-cross').getAttribute('data-loaded')) {
+    loadCrossValidate();
   }
 }
 
@@ -1330,6 +1340,99 @@ function loadStyleAnalysis() {
       } else {
         el.innerHTML = '<div style="font-size:11px;color:var(--text-muted);padding:10px">暂无文风数据</div>';
       }
+    })
+    .catch(function(e) { el.innerHTML = '<div style="font-size:11px;color:var(--danger);padding:10px">❌ 加载失败: ' + (e.message || '') + '</div>'; });
+}
+
+function loadCrossValidate() {
+  var el = document.getElementById('tab-cross');
+  if (!el || !_currentProject) return;
+  el.innerHTML = '<div style="font-size:11px;color:var(--text-muted);padding:20px;text-align:center">⏳ 交叉验证中...</div>';
+  fetch(tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/cross-validate'))
+    .then(function(r) { return r.json(); })
+    .then(function(cv) {
+      el.setAttribute('data-loaded', '1');
+      if (cv.error) { el.innerHTML = '<div style="font-size:11px;color:var(--danger);padding:10px">❌ ' + esc(cv.error) + '</div>'; return; }
+      var total = cv.totalIssues || 0;
+      var h = '<div style="font-size:12px">';
+      // 总览
+      h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:8px 12px;background:var(--bg-panel);border-radius:var(--r)">';
+      h += '<span style="font-size:18px;font-weight:700;color:' + (total > 0 ? 'var(--accent)' : 'var(--success)') + '">' + total + '</span>';
+      h += '<span style="font-size:11px;color:var(--text-muted)">个问题</span>';
+      h += '</div>';
+      // 人物设定冲突
+      if (cv.characterConflicts && cv.characterConflicts.length > 0) {
+        h += '<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:600;color:var(--danger);margin-bottom:6px">👤 人物设定冲突 (' + cv.characterConflicts.length + ')</div>';
+        cv.characterConflicts.forEach(function(c) {
+          h += '<div style="padding:6px 8px;border-left:2px solid var(--danger);margin-bottom:4px;font-size:11px">';
+          h += '<b>' + esc(c.character) + '</b> — ' + esc(c.trait) + ': ' + esc(c.expected);
+          h += '<div style="color:var(--text-muted);margin-top:2px">→ ' + esc(c.found) + '</div>';
+          h += '</div>';
+        });
+        h += '</div>';
+      }
+      // 时间线断层
+      if (cv.timelineGaps && cv.timelineGaps.length > 0) {
+        h += '<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:600;color:var(--warm);margin-bottom:6px">⏱ 时间线断层 (' + cv.timelineGaps.length + ')</div>';
+        cv.timelineGaps.forEach(function(g) {
+          h += '<div style="padding:6px 8px;border-left:2px solid var(--warm);margin-bottom:4px;font-size:11px">';
+          h += esc(g.from) + ' → ' + esc(g.to);
+          h += '<span style="color:var(--text-muted);margin-left:6px">间隔 ' + esc(g.gap) + '</span>';
+          h += '</div>';
+        });
+        h += '</div>';
+      }
+      // 伏笔未回收
+      if (cv.unrecoveredChekhovs && cv.unrecoveredChekhovs.length > 0) {
+        h += '<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:600;color:var(--accent);margin-bottom:6px">🔫 伏笔未回收 (' + cv.unrecoveredChekhovs.length + ')</div>';
+        cv.unrecoveredChekhovs.forEach(function(c) {
+          h += '<div style="padding:6px 8px;border-left:2px solid var(--accent);margin-bottom:4px;font-size:11px">';
+          h += esc(c.event);
+          h += '<span style="color:var(--text-muted);margin-left:6px">@ ' + esc(c.chapter) + '</span>';
+          h += '</div>';
+        });
+        h += '</div>';
+      }
+      // 设定矛盾
+      if (cv.settingConflicts && cv.settingConflicts.length > 0) {
+        h += '<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:600;color:var(--danger);margin-bottom:6px">🌍 设定矛盾 (' + cv.settingConflicts.length + ')</div>';
+        cv.settingConflicts.forEach(function(c) {
+          h += '<div style="padding:6px 8px;border-left:2px solid var(--danger);margin-bottom:4px;font-size:11px">';
+          h += '<b>' + esc(c.card1) + '</b> vs <b>' + esc(c.card2) + '</b> (' + esc(c.field) + ')';
+          h += '<div style="color:var(--text-muted);margin-top:2px">' + esc(c.val1) + ' ≠ ' + esc(c.val2) + '</div>';
+          h += '</div>';
+        });
+        h += '</div>';
+      }
+      // 信息泄露
+      if (cv.infoLeakage && cv.infoLeakage.length > 0) {
+        h += '<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:600;color:var(--warm);margin-bottom:6px">💬 信息泄露 (' + cv.infoLeakage.length + ')</div>';
+        cv.infoLeakage.forEach(function(l) {
+          h += '<div style="padding:6px 8px;border-left:2px solid var(--warm);margin-bottom:4px;font-size:11px">';
+          h += '<b>' + esc(l.character) + '</b> @ ' + esc(l.chapterTitle || l.chapter);
+          h += '<div style="color:var(--text-muted);margin-top:2px">“' + esc(l.speech) + '”</div>';
+          h += '<div style="color:var(--accent);margin-top:1px">泄露: ' + esc(l.leakedInfo) + '</div>';
+          h += '</div>';
+        });
+        h += '</div>';
+      }
+      // 道具状态
+      if (cv.propertyStateGaps && cv.propertyStateGaps.length > 0) {
+        h += '<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:600;color:var(--warm);margin-bottom:6px">inventory 道具状态异常 (' + cv.propertyStateGaps.length + ')</div>';
+        cv.propertyStateGaps.forEach(function(g) {
+          h += '<div style="padding:6px 8px;border-left:2px solid var(--warm);margin-bottom:4px;font-size:11px">';
+          h += '<b>' + esc(g.item) + '</b> (' + esc(g.status) + ')';
+          h += '<div style="color:var(--text-muted);margin-top:2px">在 ' + esc(g.chapterTitle || g.foundIn) + ' 中出现但未回收</div>';
+          h += '</div>';
+        });
+        h += '</div>';
+      }
+      // 无问题
+      if (total === 0) {
+        h += '<div style="text-align:center;padding:20px;font-size:12px;color:var(--success)">✅ 未发现问题</div>';
+      }
+      h += '</div>';
+      el.innerHTML = h;
     })
     .catch(function(e) { el.innerHTML = '<div style="font-size:11px;color:var(--danger);padding:10px">❌ 加载失败: ' + (e.message || '') + '</div>'; });
 }
