@@ -144,7 +144,7 @@ async function openDashboard(id) {
   var worldCount = cd.filter(function(c) { return c.type === 'world'; }).length;
   var eventCount = _facts.filter(function(f) { return f.type === 'plot_event' && !f.deprecated_at; }).length;
   var locCount = _markers ? _markers.length : 0;
-  h += '<div class="rpg-panel" style="background:linear-gradient(135deg,rgba(47,111,219,0.04),rgba(139,105,20,0.04));border:1px solid var(--border);border-radius:var(--rm);padding:12px 16px;margin-bottom:16px;display:flex;gap:24px;align-items:center;flex-wrap:wrap">';
+  h += '<div class="rpg-panel" style="background:linear-gradient(135deg,rgba(170,94,67,0.04),rgba(139,105,20,0.04));border:1px solid var(--border);border-radius:var(--rm);padding:12px 16px;margin-bottom:16px;display:flex;gap:24px;align-items:center;flex-wrap:wrap">';
   h += '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:20px">🗺️</span><div><div style="font-size:10px;color:var(--text-muted)">世界状态</div><div style="font-size:12px;font-weight:600;color:var(--text)">' + esc(_currentProject.name) + '</div></div></div>';
   h += '<div style="width:1px;height:36px;background:var(--border)"></div>';
   h += '<div style="text-align:center"><div style="font-size:11px;color:var(--text-muted)">👤 角色</div><div style="font-size:18px;font-weight:700;color:var(--accent)">' + charCount + '</div></div>';
@@ -209,7 +209,7 @@ async function openDashboard(id) {
   // 事实全典
   var activeFacts = _facts.filter(function(f) { return !f.deprecated_at; });
   var typeLabels = { character_trait:'👤 人物', world_lore:'🌍 世界', plot_event:'📖 情节', relationship:'🔗 关系', timeline:'⏱ 时间', rule:'📋 规则' };
-  var typeColors = { character_trait:'#2F6FDB', world_lore:'#8B6914', plot_event:'#B91C1C', relationship:'#059669', timeline:'#7C3AED', rule:'#6F6A60' };
+  var typeColors = { character_trait:'#AA5E43', world_lore:'#8B6914', plot_event:'#B91C1C', relationship:'#059669', timeline:'#7C3AED', rule:'#6F6A60' };
 
   var filtered = _factFilter ? activeFacts.filter(function(f) {
     var kw = _factFilter.toLowerCase();
@@ -540,7 +540,7 @@ function _renderGraphForContainer(container) {
 
       var els = [];
       var charColorMap = {};
-      var charPalette = ['#2F6FDB', '#DB2F6F', '#2FDB6F', '#DB8F2F', '#8F2FDB', '#2FDBDB', '#DB2FDB', '#6FDB2F', '#DBDB2F', '#2F4FDB'];
+      var charPalette = ['#AA5E43', '#DB2F6F', '#2FDB6F', '#DB8F2F', '#8F2FDB', '#2FDBDB', '#DB2FDB', '#6FDB2F', '#DBDB2F', '#2F4FDB'];
       var charIdx = 0;
       if (graphData.nodes) graphData.nodes.forEach(function(n) {
         if (n.type === 'character') {
@@ -570,7 +570,7 @@ function renderGraph() {
 
   // 角色颜色池
   var charColorMap = {};
-  var charPalette = ['#2F6FDB', '#DB2F6F', '#2FDB6F', '#DB8F2F', '#8F2FDB', '#2FDBDB', '#DB2FDB', '#6FDB2F', '#DBDB2F', '#2F4FDB'];
+  var charPalette = ['#AA5E43', '#DB2F6F', '#2FDB6F', '#DB8F2F', '#8F2FDB', '#2FDBDB', '#DB2FDB', '#6FDB2F', '#DBDB2F', '#2F4FDB'];
   var charIdx = 0;
 
   // 先尝试从 API 获取关系图
@@ -610,7 +610,7 @@ function renderGraphLegacy() {
   var els = [];
   var charNames = {};
   var charColorMap = {};
-  var charPalette = ['#2F6FDB', '#DB2F6F', '#2FDB6F', '#DB8F2F', '#8F2FDB', '#2FDBDB', '#2FDB6F', '#6FDB2F', '#DBDB2F', '#2F4FDB'];
+  var charPalette = ['#AA5E43', '#DB2F6F', '#2FDB6F', '#DB8F2F', '#8F2FDB', '#2FDBDB', '#2FDB6F', '#6FDB2F', '#DBDB2F', '#2F4FDB'];
   var charIdx = 0;
 
   // 节点：人物（分配颜色）

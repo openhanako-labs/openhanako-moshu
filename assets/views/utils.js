@@ -26,7 +26,7 @@ function renderMarkdown(body) {
   html = html.replace(/===([^=]+)===/g, '<mark style="background:#FFF3B0;padding:1px 4px;border-radius:3px">$1</mark>');
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color:#2F6FDB;text-decoration:underline">$1</a>');
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color:#AA5E43;text-decoration:underline">$1</a>');
   html = html.replace(/^### (.+)$/gm, '<h4 style="font-size:15px;margin:12px 0 6px;color:var(--text)">$1</h4>');
   html = html.replace(/^## (.+)$/gm, '<h3 style="font-size:17px;margin:16px 0 8px;color:var(--text)">$1</h3>');
   html = html.replace(/^# (.+)$/gm, '<h2 style="font-size:19px;margin:20px 0 10px;color:var(--text);border-bottom:1px solid var(--border);padding-bottom:4px">$1</h2>');
@@ -52,7 +52,7 @@ function autoLinkMarkdown(html) {
   names.forEach(function(name) {
     var escName = esc(name);
     if (html.indexOf(escName) === -1) return;
-    var color = '#2F6FDB';
+    var color = '#AA5E43';
     if (dedup[name].type === 'location') color = '#059669';
     var repl = '<span class="auto-link" style="border-bottom:1.5px dashed ' + color + ';cursor:pointer;color:' + color + '" onclick="event.stopPropagation();openCardDetail(\'' + esc(name) + '\')" title="点击查看">' + escName + '</span>';
     html = html.split(escName).join(repl);

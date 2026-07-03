@@ -78,6 +78,15 @@ function toast(msg) {
 //  INIT
 // ═══════════════════════════════════
 function init() {
+  // 注入字体
+  var fl = document.createElement('link');
+  fl.rel = 'preconnect'; fl.href = 'https://fonts.googleapis.com';
+  document.head.appendChild(fl);
+  var fl2 = document.createElement('link');
+  fl2.rel = 'stylesheet';
+  fl2.href = 'https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500&display=swap';
+  document.head.appendChild(fl2);
+
   var root = q('root');
   root.innerHTML =
     '<div class="title-bar">' +
@@ -89,10 +98,11 @@ function init() {
     '</div>' +
     '<div class="main-area">' +
       '<div class="activity-bar">' +
-        '<button class="act-btn active" data-view="writing" onclick="switchView(\'writing\')" title="写作">📝</button>' +
-        '<button class="act-btn" data-view="dashboard" onclick="switchView(\'dashboard\')" title="概况">📊</button>' +
-        '<button class="act-btn" data-view="map" onclick="switchView(\'map\')" title="地图">🗺</button>' +
-        '<button class="act-btn" data-view="world" onclick="switchView(\'world\')" title="世界地图">🌍</button>' +
+        '<button class="act-btn active" data-view="writing" onclick="switchView(\'writing\')" title="写">写</button>' +
+        '<button class="act-btn" data-view="dashboard" onclick="switchView(\'dashboard\')" title="览">览</button>' +
+        '<hr class="act-divider">' +
+        '<button class="act-btn" data-view="map" onclick="switchView(\'map\')" title="地图">图</button>' +
+        '<button class="act-btn" data-view="world" onclick="switchView(\'world\')" title="世界地图">界</button>' +
       '</div>' +
       '<div class="content-area" id="content-area">' +
         '<div class="sidebar" id="sidebar"></div>' +
@@ -101,7 +111,7 @@ function init() {
     '</div>' +
     '<div class="status-bar">' +
       '<div class="status-left">' +
-        '<span id="status-project">墨述 · Ink Narrative</span>' +
+        '<span id="status-project">墨述</span>' +
       '</div>' +
       '<div class="status-right">' +
         '<span id="status-chars"></span>' +
