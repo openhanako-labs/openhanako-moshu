@@ -158,6 +158,27 @@ export default function (app, ctx) {
       return c.json({ error: e.message }, 500);
     }
   });
+  // 伏笔管理 API
+  app.get("/api/project/:id/plot-threads", async (c) => {
+    const id = safeProjectId(c.req.param("id"));
+    if (!id) return c.json({ error: "bad id" }, 400);
+    try {
+      const { listThreads } = await import("../lib/plot-thread.js");
+      return c.json(listThreads(dd, id));
+    } catch(e) { return c.json({ error: e.message }, 500); }
+  });
+  app.post("/api/project/:id/plot-threads", async (c) => {
+    const id = safeProjectId(c.req.param("id"));
+    if (!id) return c.json({ error: "bad id" }, 400);
+    try {
+      const b = await c.req.json();
+      const { addThread, updateThread, removeThread, advanceStatus } = await import("../lib/plot-thread.js");
+      if (b._delete && b.id) return c.json(removeThread(dd, id, b.id));
+      if (b._advance && b.id) return c.json(advanceStatus(dd, id, b.id));
+      if (b.id) return c.json(updateThread(dd, id, b.id, b));
+      return c.json(addThread(dd, id, { title: b.title, type: b.type, status: b.status, description: b.description, plantedChapter: b.plantedChapter, echoedChapters: b.echoedChapters, resolvedChapter: b.resolvedChapter }));
+    } catch(e) { return c.json({ error: e.message }, 500); }
+  });
   // 上下文预览 — 返回结构化上下文命中数据
   app.get("/api/project/:id/context-preview", async (c) => {
     const id = safeProjectId(c.req.param("id"));

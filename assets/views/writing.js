@@ -364,6 +364,7 @@ async function renderChapterContent() {
   }
   h += '<button class="btn" onclick="runAnalysis()">🔍 分析</button>';
   h += '<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="toggleGraphPanel()" title="关系图">🕸 关系图</button>';
+  h += '<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="togglePlotPanel()" title="伏笔管理">🔫 伏笔</button>';
   h += '</div>';
   h += '</div>';
 
@@ -379,6 +380,11 @@ async function renderChapterContent() {
   h += '<span id="ctx-detail" style="margin-left:auto;cursor:pointer;color:var(--accent);display:none" onclick="toggleCtxDetail()">展开</span>';
   h += '</div>';
   h += '<div id="ctx-detail-panel" style="display:none;margin-bottom:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--r);background:var(--bg-panel);font-size:11px;max-height:200px;overflow-y:auto"></div>';
+  // 伏笔面板
+  h += '<div id="plot-panel" style="display:none;margin-bottom:12px">';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span style="font-size:12px;font-weight:600;color:var(--text-sub)">🔫 伏笔管理</span><button class="btn btn-ghost" style="font-size:10px;padding:2px 8px" onclick="togglePlotPanel()">✕ 关闭</button></div>';
+  h += '<div id="plotContent" style="font-size:11px;color:var(--text-muted);padding:10px;text-align:center">加载中...</div>';
+  h += '</div>';
   // 关系图面板
   h += '<div id="graph-panel" style="display:none;margin-bottom:12px">';
   h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><span style="font-size:12px;font-weight:600;color:var(--text-sub)">🕸 人物关系图</span><button class="btn btn-ghost" style="font-size:10px;padding:2px 8px" onclick="toggleGraphPanel()">✕ 关闭</button></div>';
@@ -1526,6 +1532,147 @@ function loadCrossValidate() {
       el.innerHTML = h;
     })
     .catch(function(e) { el.innerHTML = '<div style="font-size:11px;color:var(--danger);padding:10px">❌ 加载失败: ' + (e.message || '') + '</div>'; });
+}
+
+var _plotThreads = null;
+
+function togglePlotPanel() {
+  var panel = document.getElementById('plot-panel');
+  if (!panel) return;
+  if (panel.style.display === 'none') {
+    panel.style.display = '';
+    loadPlotThreads();
+  } else {
+    panel.style.display = 'none';
+  }
+}
+
+var PLOT_TYPES = {
+  chekhovs_gun: '契诃夫之枪', prophecy: '预言', symbol: '象征', character_thread: '角色伏线',
+  dialogue_hint: '对话暗示', mcguffin: '麦格芬', foreshadow: '前兆', red_herring: '红鲱鱼',
+  cliffhanger: '悬念钩', mystery: '谜团'
+};
+var PLOT_STATUS = { planned: '计划', planted: '埋设', echoed: '呼应', resolved: '回收' };
+var PLOT_STATUS_COLORS = { planned: 'var(--text-muted)', planted: 'var(--accent)', echoed: 'var(--warm)', resolved: 'var(--success)' };
+var PLOT_FLOW = ['planned', 'planted', 'echoed', 'resolved'];
+
+function loadPlotThreads() {
+  if (!_currentProject) return;
+  fetch(tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/plot-threads'))
+    .then(function(r) { return r.json(); })
+    .then(function(threads) {
+      _plotThreads = threads || [];
+      renderPlotPanel();
+    })
+    .catch(function() {
+      document.getElementById('plotContent').innerHTML = '<div style="color:var(--danger)">❌ 加载失败</div>';
+    });
+}
+
+function renderPlotPanel() {
+  var el = document.getElementById('plotContent');
+  if (!el) return;
+  var threads = _plotThreads || [];
+  var h = '';
+  // 统计
+  var stats = {};
+  PLOT_FLOW.forEach(function(s) { stats[s] = 0; });
+  threads.forEach(function(t) { if (stats[t.status] !== undefined) stats[t.status]++; });
+  h += '<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">';
+  PLOT_FLOW.forEach(function(s) {
+    h += '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--bg-panel);color:' + (PLOT_STATUS_COLORS[s] || '') + '">' + PLOT_STATUS[s] + ' ×' + (stats[s]||0) + '</span>';
+  });
+  h += '<button class="btn btn-ghost" style="font-size:10px;padding:2px 8px;margin-left:auto;color:var(--accent)" onclick="addPlotThread()">+ 新伏笔</button>';
+  h += '</div>';
+  // 列表
+  if (threads.length === 0) {
+    h += '<div style="text-align:center;padding:16px;color:var(--text-muted)">暂无伏笔，点击「新伏笔」创建</div>';
+  } else {
+    threads.forEach(function(t) {
+      var sColor = PLOT_STATUS_COLORS[t.status] || 'var(--text-muted)';
+      var sIdx = PLOT_FLOW.indexOf(t.status);
+      var canAdvance = sIdx >= 0 && sIdx < PLOT_FLOW.length - 1;
+      h += '<div style="padding:8px 10px;border:1px solid var(--border);border-radius:var(--r);margin-bottom:4px;background:var(--bg-panel);border-left:2px solid ' + sColor + '">';
+      h += '<div style="display:flex;align-items:center;gap:6px">';
+      h += '<span style="font-weight:500;font-size:12px;color:var(--text)">' + esc(t.title) + '</span>';
+      h += '<span style="font-size:9px;color:var(--text-muted)">' + (PLOT_TYPES[t.type] || t.type) + '</span>';
+      h += '<span style="font-size:9px;font-weight:600;color:' + sColor + ';margin-left:auto">' + PLOT_STATUS[t.status] + '</span>';
+      if (canAdvance) h += '<button class="btn btn-ghost" style="font-size:9px;padding:1px 6px;color:var(--accent)" onclick="advancePlot(\'' + t.id + '\')" title="推进状态">→</button>';
+      h += '<button class="btn btn-ghost" style="font-size:9px;padding:1px 4px" onclick="editPlotThread(\'' + t.id + '\')" title="编辑">✏️</button>';
+      h += '<button class="btn btn-ghost" style="font-size:9px;padding:1px 4px;color:var(--danger)" onclick="deletePlotThread(\'' + t.id + '\')" title="删除">🗑</button>';
+      h += '</div>';
+      if (t.description) h += '<div style="font-size:10px;color:var(--text-sub);margin-top:3px">' + esc(t.description) + '</div>';
+      if (t.plantedChapter) h += '<div style="font-size:9px;color:var(--text-muted);margin-top:2px">埋设 @ ' + esc(t.plantedChapter) + '</div>';
+      h += '</div>';
+    });
+  }
+  el.innerHTML = h;
+}
+
+function addPlotThread() {
+  if (!_currentProject) return;
+  var body = { title: '新伏笔', type: 'chekhovs_gun', status: 'planned', description: '' };
+  fetch(tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/plot-threads'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.ok && d.thread) { _plotThreads.push(d.thread); renderPlotPanel(); toast('✓ 伏笔已创建'); }
+  });
+}
+
+function advancePlot(id) {
+  fetch(tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/plot-threads'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ _advance: true, id: id })
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.ok && d.thread) {
+      var idx = _plotThreads.findIndex(function(t) { return t.id === id; });
+      if (idx >= 0) _plotThreads[idx] = d.thread;
+      renderPlotPanel();
+      toast('→ ' + PLOT_STATUS[d.thread.status]);
+    }
+  });
+}
+
+function editPlotThread(id) {
+  var t = _plotThreads.find(function(x) { return x.id === id; });
+  if (!t) return;
+  var overlay = document.createElement('div');
+  overlay.className = 'card-form-overlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.3);backdrop-filter:blur(2px);z-index:200;display:flex;align-items:center;justify-content:center';
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+  var panel = document.createElement('div');
+  panel.style.cssText = 'background:var(--bg);border:1px solid var(--border);border-radius:var(--rm);width:400px;max-height:80vh;overflow-y:auto;box-shadow:0 12px 40px rgba(0,0,0,.15);padding:16px';
+  panel.onclick = function(e) { e.stopPropagation(); };
+  var h = '<div style="font-weight:600;font-size:14px;margin-bottom:10px">✏️ 编辑伏笔</div>';
+  h += '<input id="ptTitle" value="' + esc(t.title||'') + '" placeholder="伏笔标题" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--r);margin-bottom:8px;font-size:13px;background:var(--bg-panel)">';
+  // 类型选择
+  h += '<label style="font-size:10px;color:var(--text-muted);display:block;margin-bottom:4px">类型</label>';
+  h += '<select id="ptType" style="width:100%;padding:5px 10px;border:1px solid var(--border);border-radius:var(--r);margin-bottom:8px;font-size:12px;background:var(--bg-panel)">';
+  Object.keys(PLOT_TYPES).forEach(function(k) { h += '<option value="' + k + '"' + (t.type===k?' selected':'') + '>' + PLOT_TYPES[k] + '</option>'; });
+  h += '</select>';
+  // 状态选择
+  h += '<label style="font-size:10px;color:var(--text-muted);display:block;margin-bottom:4px">状态</label>';
+  h += '<select id="ptStatus" style="width:100%;padding:5px 10px;border:1px solid var(--border);border-radius:var(--r);margin-bottom:8px;font-size:12px;background:var(--bg-panel)">';
+  Object.keys(PLOT_STATUS).forEach(function(k) { h += '<option value="' + k + '"' + (t.status===k?' selected':'') + '>' + PLOT_STATUS[k] + '</option>'; });
+  h += '</select>';
+  h += '<textarea id="ptDesc" placeholder="描述..." style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--r);margin-bottom:8px;font-size:12px;min-height:50px;resize:vertical;background:var(--bg-panel)">' + esc(t.description||'') + '</textarea>';
+  h += '<input id="ptPlanted" value="' + esc(t.plantedChapter||'') + '" placeholder="埋设章节 ID" style="width:100%;padding:5px 10px;border:1px solid var(--border);border-radius:var(--r);margin-bottom:10px;font-size:11px;background:var(--bg-panel)">';
+  h += '<div style="display:flex;gap:8px;justify-content:flex-end">';
+  h += '<button class="btn" onclick="this.closest(\'.card-form-overlay\').remove()">取消</button>';
+  h += '<button class="btn btn-primary" onclick="var id=\'' + t.id + '\';var body={id:id,title:document.getElementById(\'ptTitle\').value,type:document.getElementById(\'ptType\').value,status:document.getElementById(\'ptStatus\').value,description:document.getElementById(\'ptDesc\').value,plantedChapter:document.getElementById(\'ptPlanted\').value};fetch(tu(A+\'/api/project/\'+encodeURIComponent(_currentProject.id)+\'/plot-threads\'),{method:\'POST\',headers:{\'Content-Type\':\'application/json\'},body:JSON.stringify(body)}).then(function(r){return r.json()}).then(function(d){if(d.ok){var i=_plotThreads.findIndex(function(t){return t.id===id});if(i>=0)_plotThreads[i]=d.thread;renderPlotPanel();toast(\'✓ 已保存\')}});this.closest(\'.card-form-overlay\').remove()">保存</button>';
+  h += '</div>';
+  panel.innerHTML = h;
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+}
+
+function deletePlotThread(id) {
+  showConfirmDialog('确定删除此伏笔？', function() {
+    fetch(tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/plot-threads'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ _delete: true, id: id })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.ok) { _plotThreads = _plotThreads.filter(function(t) { return t.id !== id; }); renderPlotPanel(); toast('✓ 已删除'); }
+    });
+  });
 }
 
 var _writingGraphLoaded = false;
