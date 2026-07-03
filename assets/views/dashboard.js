@@ -104,6 +104,7 @@ async function openDashboard(id) {
   h += '<button class="btn btn-ghost" style="margin-left:8px" onclick="renderDashboardSidebar();renderGlobalDashboard();q(\'title-project\').textContent=\'\'">← 返回总览</button>';
   h += '</div>';
   h += '<div class="panel-body fade-in">';
+  setTimeout(loadMAStatus, 200);
 
   h += '<div class="stats-grid">';
   h += '<div class="stat-card"><div class="num">' + ch.length + '</div><div class="lbl">章节</div></div>';
@@ -148,6 +149,17 @@ async function openDashboard(id) {
   h += '<span id="txtImportStatus" style="font-size:11px;color:var(--text-muted)"></span>';
   h += '</div>';
   h += '<div id="txtImportChunks" style="margin-top:8px"></div>';
+  h += '</div>';
+
+  // 多 Agent 写作面板
+  h += '<div style="margin-bottom:16px;border:1px solid var(--border);border-radius:var(--rm);padding:12px 16px;background:var(--bg-panel)">';
+  h += '<div style="font-size:12px;font-weight:600;color:var(--text-sub);margin-bottom:8px">🎭 多 Agent 写作流水线</div>';
+  h += '<div id="maStatus" style="font-size:11px;color:var(--text-muted);margin-bottom:8px">加载中...</div>';
+  h += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+  h += '<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="showMAConfig()">⚙️ 配置</button>';
+  h += '<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="loadMAStatus()">🔄 刷新</button>';
+  h += '</div>';
+  h += '<div id="maConfig" style="display:none;margin-top:10px"></div>';
   h += '</div>';
 
   // RPG世界状态面板
@@ -1613,6 +1625,64 @@ async function exportTwineStory() {
 // ═══════════════════════════════════
 //  BRANCH TREE VISUALIZATION
 // ═══════════════════════════════════
+
+function loadMAStatus() {
+  if (!_currentProject) return;
+  fetch(tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/multi-agent/status'))
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var el = document.getElementById('maStatus');
+      if (!el) return;
+      if (!d.stages) { el.innerHTML = '<span style="color:var(--text-muted)">未配置</span>'; return; }
+      var h = '';
+      d.stages.forEach(function(s) {
+        var dotColor = s.status === 'completed' ? 'var(--success)' : s.status === 'in_progress' ? 'var(--accent)' : 'var(--text-muted)';
+        var label = s.status === 'completed' ? '✅' : s.status === 'in_progress' ? '🔄' : '⬜';
+        h += '<div style="display:flex;align-items:center;gap:6px;padding:3px 0">';
+        h += '<span style="width:6px;height:6px;border-radius:50%;background:' + dotColor + '"></span>';
+        h += '<span style="font-size:12px">' + label + ' ' + s.label + '</span>';
+        if (s.agentId) h += '<span style="font-size:10px;color:var(--text-muted)">@' + esc(s.agentId) + '</span>';
+        if (d.currentStage === s.stage && s.status === 'in_progress') h += '<span style="font-size:9px;color:var(--accent)">进行中</span>';
+        h += '</div>';
+      });
+      el.innerHTML = h;
+    })
+    .catch(function() { var el = document.getElementById('maStatus'); if (el) el.innerHTML = '<span style="color:var(--danger)">❌ 加载失败</span>'; });
+}
+
+function showMAConfig() {
+  var el = document.getElementById('maConfig');
+  if (!el) return;
+  if (el.style.display === 'none') {
+    el.style.display = '';
+    el.innerHTML = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">配置每个角色的 Agent 和模型（留空则用当前助手）</div>';
+    var stages = [{key:'settings',label:'设定'},{key:'outline',label:'大纲'},{key:'draft',label:'正文'},{key:'review',label:'审稿'}];
+    stages.forEach(function(s) {
+      el.innerHTML += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><span style="font-size:12px;min-width:40px">' + s.label + '</span><input id="ma_'+s.key+'_agent" placeholder="Agent ID" style="flex:1;padding:3px 8px;border:1px solid var(--border);border-radius:var(--r);font-size:11px;background:var(--bg)"><input id="ma_'+s.key+'_model" placeholder="模型（可选）" style="flex:1;padding:3px 8px;border:1px solid var(--border);border-radius:var(--r);font-size:11px;background:var(--bg)"></div>';
+    });
+    el.innerHTML += '<button class="btn btn-primary" style="font-size:11px;padding:4px 12px;margin-top:6px" onclick="saveMAConfig()">💾 保存配置</button>';
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+async function saveMAConfig() {
+  if (!_currentProject) return;
+  var roles = {};
+  ['settings','outline','draft','review'].forEach(function(s) {
+    var a = document.getElementById('ma_'+s+'_agent');
+    var m = document.getElementById('ma_'+s+'_model');
+    roles[s] = { agentId: a ? a.value.trim() || null : null, model: m ? m.value.trim() || null : null };
+  });
+  try {
+    await fetch(tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/multi-agent/configure'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roles: roles })
+    });
+    toast('✓ 配置已保存');
+    loadMAStatus();
+    document.getElementById('maConfig').style.display = 'none';
+  } catch(e) { toast('❌ 保存失败'); }
+}
 
 function doTxtImport() {
   var fileEl = document.getElementById('txtImportFile');

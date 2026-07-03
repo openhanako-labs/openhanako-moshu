@@ -179,6 +179,36 @@ export default function (app, ctx) {
       return c.json(addThread(dd, id, { title: b.title, type: b.type, status: b.status, description: b.description, plantedChapter: b.plantedChapter, echoedChapters: b.echoedChapters, resolvedChapter: b.resolvedChapter }));
     } catch(e) { return c.json({ error: e.message }, 500); }
   });
+  // 多 Agent 写作 API
+  app.get("/api/project/:id/multi-agent/status", async (c) => {
+    const id = safeProjectId(c.req.param("id"));
+    if (!id) return c.json({ error: "bad id" }, 400);
+    try {
+      var cp = path.join(dd, "projects", id, "workflow-config.json");
+      if (!fs.existsSync(cp)) return c.json({ ok: true, status: "未配置", stages: [{stage:"settings",label:"设定",status:"unconfigured"},{stage:"outline",label:"大纲",status:"unconfigured"},{stage:"draft",label:"正文",status:"unconfigured"},{stage:"review",label:"审稿",status:"unconfigured"}] });
+      var config = JSON.parse(fs.readFileSync(cp, "utf-8"));
+      var STAGES = ["settings","outline","draft","review"];
+      var LABELS = {settings:"设定",outline:"大纲",draft:"正文",review:"审稿"};
+      var stages = STAGES.map(function(s) { return { stage:s, label:LABELS[s], status:(config.stages&&config.stages[s]?config.stages[s].status:"pending")||"pending", agentId:(config.roles&&config.roles[s]?config.roles[s].agentId:null)||null, model:(config.roles&&config.roles[s]?config.roles[s].model:null)||null }; });
+      return c.json({ ok: true, currentStage: config.currentStage||null, stages: stages });
+    } catch(e) { return c.json({ error: e.message }, 500); }
+  });
+  app.post("/api/project/:id/multi-agent/configure", async (c) => {
+    const id = safeProjectId(c.req.param("id"));
+    if (!id) return c.json({ error: "bad id" }, 400);
+    try {
+      const b = await c.req.json();
+      var config = {
+        roles: b.roles || { settings:{agentId:null,model:null}, outline:{agentId:null,model:null}, draft:{agentId:null,model:null}, review:{agentId:null,model:null} },
+        currentStage: null,
+        stages: { settings:{status:"pending",startedAt:null,completedAt:null}, outline:{status:"pending",startedAt:null,completedAt:null}, draft:{status:"pending",startedAt:null,completedAt:null}, review:{status:"pending",startedAt:null,completedAt:null} },
+        createdAt: new Date().toISOString(),
+      };
+      var p2 = path.join(dd, "projects", id);
+      fs.writeFileSync(path.join(p2, "workflow-config.json"), JSON.stringify(config, null, 2), "utf-8");
+      return c.json({ ok: true });
+    } catch(e) { return c.json({ error: e.message }, 500); }
+  });
   // txt2world API
   app.post("/api/project/:id/txt2world", async (c) => {
     const id = safeProjectId(c.req.param("id"));
