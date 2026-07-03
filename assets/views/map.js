@@ -1,12 +1,15 @@
 var _maps = [];
 var _currentMap = null;
+var _shapes = [];
+var _mapLayers = []; // 存储所有可交互图层引用
 
 async function loadMapMarkers() {
   if (!_currentMap) return;
   try {
     var r = await fetch(tu(A + '/api/project/' + encodeURIComponent(_mapProject) + '/markers?map=' + encodeURIComponent(_currentMap.id)));
     _markers = await r.json();
-  } catch(e) { _markers = []; }
+    _shapes = (_currentMap && _currentMap.shapes) ? _currentMap.shapes : [];
+  } catch(e) { _markers = []; _shapes = []; }
   renderMapContent();
 }
 
@@ -77,6 +80,7 @@ function renderMapContent() {
   if (_maps.length > 1) h += '<button class="btn btn-ghost" style="font-size:10px;padding:3px 6px;color:var(--danger)" onclick="deleteCurrentMap()">🗑</button>';
   h += '<div style="margin-left:auto;display:flex;gap:6px">';
   h += '<button class="btn" onclick="addMapMarker()">📍 新标记</button>';
+  h += '<button class="btn btn-ghost" onclick="setMapBackground()" title="上传底图">🖼 底图</button>';
   h += '<button class="btn btn-primary" onclick="saveMarkers()">💾 保存</button>';
   h += '<button class="btn btn-ghost" onclick="exportMapHTML()">📦 导出</button>';
   h += '</div>';
@@ -118,7 +122,17 @@ function loadLeaflet() {
   document.head.appendChild(link);
 
   var script = document.createElement('script');
-  script.onload = function() { _mapLoaded = 2; initMap(); };
+  script.onload = function() {
+    // 加载 Geoman
+    var gpLink = document.createElement('link');
+    gpLink.rel = 'stylesheet';
+    gpLink.href = 'https://unpkg.com/@geoman-io/leaflet-geoman-free@2.18.3/dist/leaflet-geoman.css';
+    document.head.appendChild(gpLink);
+    var gpScript = document.createElement('script');
+    gpScript.onload = function() { _mapLoaded = 2; initMap(); };
+    gpScript.src = 'https://unpkg.com/@geoman-io/leaflet-geoman-free@2.18.3/dist/leaflet-geoman.min.js';
+    document.body.appendChild(gpScript);
+  };
   script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
   document.body.appendChild(script);
 }
@@ -137,12 +151,74 @@ function initMap() {
 
   q('lmap')._map.fitBounds([[-300, -300], [300, 300]]);
 
-  for (var x = -300; x <= 300; x += 50) {
-    L.polyline([[x, -300], [x, 300]], { color: 'rgba(0,0,0,0.05)', weight: 1 }).addTo(q('lmap')._map);
-    L.polyline([[-300, x], [300, x]], { color: 'rgba(0,0,0,0.05)', weight: 1 }).addTo(q('lmap')._map);
+  // 背景图
+  if (_currentMap && _currentMap.backgroundImage) {
+    var bgUrl = _currentMap.backgroundImage;
+    if (!bgUrl.startsWith('data:') && !bgUrl.startsWith('http')) {
+      bgUrl = tu(A + '/api/project/' + encodeURIComponent(_mapProject) + '/asset/' + encodeURIComponent(bgUrl));
+    }
+    var img = new Image();
+    img.onload = function() {
+      var w = img.width, h = img.height;
+      var scale = Math.min(600 / w, 600 / h);
+      var bw = w * scale, bh = h * scale;
+      L.imageOverlay(bgUrl, [[-bh/2, -bw/2], [bh/2, bw/2]]).addTo(q('lmap')._map);
+      q('lmap')._map.fitBounds([[-bh/2, -bw/2], [bh/2, bw/2]]);
+    };
+    img.src = bgUrl;
+  } else {
+    // 网格背景
+    for (var x = -300; x <= 300; x += 50) {
+      L.polyline([[x, -300], [x, 300]], { color: 'rgba(0,0,0,0.05)', weight: 1 }).addTo(q('lmap')._map);
+      L.polyline([[-300, x], [300, x]], { color: 'rgba(0,0,0,0.05)', weight: 1 }).addTo(q('lmap')._map);
+    }
+  }
+
+  // 启用 Geoman 绘图
+  if (window.L && window.L.PM) {
+    q('lmap')._map.pm.addControls({
+      position: 'topright',
+      drawCircle: false,
+      drawCircleMarker: false,
+      drawText: false,
+      cutPolygon: false,
+      rotateMode: false,
+      dragMode: true,
+      editMode: true,
+      removalMode: true
+    });
+    // 绘图完成时存储
+    q('lmap')._map.on('pm:create', function(e) {
+      var layer = e.layer;
+      var type = e.shape; // 'Polygon' or 'Line'
+      var pts = [];
+      if (layer.getLatLngs) {
+        var latlngs = layer.getLatLngs();
+        if (Array.isArray(latlngs[0])) latlngs = latlngs[0];
+        latlngs.forEach(function(ll) { pts.push([ll.lat, ll.lng]); });
+      }
+      var shape = {
+        id: 'shape_' + Date.now().toString(36),
+        type: type === 'Polygon' ? 'polygon' : 'polyline',
+        points: pts,
+        color: '#AA5E43',
+        name: type === 'Polygon' ? '新区域' : '新路线'
+      };
+      _shapes.push(shape);
+      layer._shapeId = shape.id;
+      _mapLayers.push(layer);
+    });
+    q('lmap')._map.on('pm:remove', function(e) {
+      var layer = e.layer;
+      if (layer._shapeId) {
+        _shapes = _shapes.filter(function(s) { return s.id !== layer._shapeId; });
+        _mapLayers = _mapLayers.filter(function(l) { return l !== layer; });
+      }
+    });
   }
 
   renderMarkers();
+  renderStoredShapes();
 }
 
 function renderMarkers() {
@@ -155,6 +231,7 @@ function renderMarkers() {
   });
 
   _markers.forEach(function(m) {
+    var linkedCount = (m.linkedChapters||[]).length;
     L.marker([m.y || 0, m.x || 0], {
       icon: L.divIcon({
         className: '',
@@ -164,6 +241,48 @@ function renderMarkers() {
       })
     }).addTo(M).bindPopup('<div style="max-width:220px"><b>' + esc(m.name) + '</b>' + (m.description ? '<br><small style="color:var(--text-muted)">' + esc(m.description) + '</small>' : '') + (linkedCount > 0 ? '<br><small style="color:var(--accent)">📄 ' + linkedCount + ' 关联章节</small>' : '') + '</div>');
   });
+}
+
+function renderStoredShapes() {
+  var el = q('lmap');
+  if (!el || !el._map || !_shapes.length) return;
+  var M = el._map;
+  _shapes.forEach(function(s) {
+    var pts = s.points.map(function(p) { return [p[0], p[1]]; });
+    var layer;
+    if (s.type === 'polygon') {
+      layer = L.polygon(pts, { color: s.color || '#AA5E43', weight: 2, fillOpacity: 0.1 }).addTo(M);
+    } else {
+      layer = L.polyline(pts, { color: s.color || '#AA5E43', weight: 2, dashArray: '5,5' }).addTo(M);
+    }
+    if (s.name) layer.bindPopup('<b>' + esc(s.name) + '</b>' + (s.description ? '<br><small>' + esc(s.description) + '</small>' : ''));
+    layer._shapeId = s.id;
+    _mapLayers.push(layer);
+  });
+}
+
+function setMapBackground() {
+  var input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = function(e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      var dataUrl = ev.target.result;
+      if (!_currentMap) _currentMap = {};
+      _currentMap.backgroundImage = dataUrl;
+      // 重新初始化地图
+      var el = q('lmap');
+      if (el && el._map) { el._map.remove(); el._map = null; }
+      _mapLayers = [];
+      initMap();
+      toast('🖼 底图已设置，记得保存');
+    };
+    reader.readAsDataURL(file);
+  };
+  input.click();
 }
 
 function addMapMarker() {
@@ -228,9 +347,9 @@ async function saveMarkers() {
     await fetch(tu(A + '/api/project/' + encodeURIComponent(_mapProject) + '/markers'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ markers: _markers, _mapId: _currentMap.id })
+      body: JSON.stringify({ markers: _markers, _mapId: _currentMap.id, shapes: _shapes, backgroundImage: _currentMap.backgroundImage || null })
     });
-    toast('💾 标记已保存');
+    toast('💾 已保存');
   } catch(e) {
     toast('❌ 保存失败');
   }
