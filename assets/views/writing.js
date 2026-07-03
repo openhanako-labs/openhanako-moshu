@@ -82,12 +82,13 @@ function renderMainPanel() {
         h += '<div class="set-card" data-cardid="' + c.id + '" onclick="toggleCard(\'' + c.id + '\')">';
         h += '<span class="sc-icon">' + (c.type === 'characters' ? '👤' : c.type === 'world' ? '🌍' : '📝') + '</span>';
         h += '<span class="sc-name">' + esc(c.name) + '</span>';
+        if (c.subtype) { var stLabel = getSubtypeLabel(c.type, c.subtype); if (stLabel) h += '<span class="tag" style="font-size:9px;padding:0 5px">' + esc(stLabel) + '</span>'; }
         h += '</div>';
         if (expanded && c.content) {
           h += '<div class="card-detail-popup">';
           h += '<div class="cd-header">';
           h += '<div class="cd-icon">' + (c.type === 'characters' ? '👤' : c.type === 'world' ? '🌍' : '📝') + '</div>';
-          h += '<div style="flex:1"><div class="cd-name">' + esc(c.name) + '</div><div class="cd-type">' + esc(c.type || '') + '</div></div>';
+          h += '<div style="flex:1"><div class="cd-name">' + esc(c.name) + '</div><div class="cd-type">' + esc(c.type || '') + (c.subtype ? ' · ' + esc(getSubtypeLabel(c.type, c.subtype)) : '') + '</div></div>';
           h += '<button class="btn btn-ghost" style="font-size:11px;padding:2px 8px" onclick="event.stopPropagation();editCard(\'' + c.id + '\')">✏️ 编辑</button>';
           h += '</div>';
           h += '<div class="cd-fields">';
@@ -817,6 +818,7 @@ function editCard(cardId) {
 function showCardForm(card) {
   var isNew = !card;
   var type = card ? card.type : 'characters';
+  var subtype = card ? (card.subtype || '') : '';
   var name = card ? card.name : '';
 
   // 建议字段模板
@@ -837,9 +839,20 @@ function showCardForm(card) {
   // 类型选择 — chips，先选类型再填内容
   h += '<div style="margin-bottom:12px"><label style="font-size:11px;color:var(--text-sub);display:block;margin-bottom:6px">类型</label>';
   h += '<div class="card-type-grid type-grid">';
-  h += '<label class="type-chip"><input type="radio" name="cfType" value="characters" onchange="refreshCardFields()"' + (type === 'characters' ? ' checked' : '') + '><span>👤 人物</span></label>';
-  h += '<label class="type-chip"><input type="radio" name="cfType" value="world" onchange="refreshCardFields()"' + (type === 'world' ? ' checked' : '') + '><span>🌍 世界观</span></label>';
-  h += '<label class="type-chip"><input type="radio" name="cfType" value="style" onchange="refreshCardFields()"' + (type === 'style' ? ' checked' : '') + '><span>📝 文风</span></label>';
+  h += '<label class="type-chip"><input type="radio" name="cfType" value="characters" onchange="onCardTypeChange()"' + (type === 'characters' ? ' checked' : '') + '><span>👤 人物</span></label>';
+  h += '<label class="type-chip"><input type="radio" name="cfType" value="world" onchange="onCardTypeChange()"' + (type === 'world' ? ' checked' : '') + '><span>🌍 世界观</span></label>';
+  h += '<label class="type-chip"><input type="radio" name="cfType" value="style" onchange="onCardTypeChange()"' + (type === 'style' ? ' checked' : '') + '><span>📝 文风</span></label>';
+  h += '</div></div>';
+
+  // 子类型选择（人物/世界观有子类型）
+  h += '<div id="cfSubtypeRow" style="margin-bottom:12px' + (CARD_SUBTYPES[type] ? '' : ';display:none') + '"><label style="font-size:11px;color:var(--text-sub);display:block;margin-bottom:6px">子类型</label>';
+  h += '<div class="type-grid">';
+  if (CARD_SUBTYPES[type]) {
+    Object.keys(CARD_SUBTYPES[type]).forEach(function(st) {
+      var info = CARD_SUBTYPES[type][st];
+      h += '<label class="type-chip"><input type="radio" name="cfSubtype" value="' + st + '" onchange="refreshCardFields()"' + (subtype === st ? ' checked' : '') + '><span>' + info.label + '</span></label>';
+    });
+  }
   h += '</div></div>';
 
   // 名称
@@ -847,7 +860,7 @@ function showCardForm(card) {
   h += '<input id="cfName" value="' + esc(name) + '" style="width:100%;padding:6px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-panel);color:var(--text);font-size:13px;font-family:var(--font-ui);outline:none" placeholder="输入' + (type === 'characters' ? '人物' : '') + '名称"></div>';
 
   // 模板字段
-  var fields = templateFields[type] || [];
+  var fields = getFieldsForType(type, subtype);
   h += '<div id="cfFields" style="max-height:300px;overflow-y:auto">';
   var existing = card && card.content ? card.content : {};
   fields.forEach(function(f) {
@@ -912,6 +925,58 @@ var _cardTemplateFields = {
   style: ['名称', '风格描述', '关键词']
 };
 
+// ── 卡片子类型定义 ──
+var CARD_SUBTYPES = {
+  characters: {
+    'protagonist': { label: '主角', fields: ['姓名', '性别', '年龄', '外貌', '性格', '身份', '动机', '缺陷', '成长弧', '背景'] },
+    'supporting': { label: '配角', fields: ['姓名', '性别', '年龄', '外貌', '性格', '身份', '与主角关系', '功能角色'] },
+    'antagonist': { label: '反派', fields: ['姓名', '性别', '年龄', '外貌', '性格', '目标', '手段', '弱点', '背景'] },
+    'mentor': { label: '导师', fields: ['姓名', '性别', '年龄', '外貌', '性格', '专长', '教导方式', '与主角关系'] },
+    'neutral': { label: '中立', fields: ['姓名', '性别', '年龄', '外貌', '性格', '立场', '作用'] }
+  },
+  world: {
+    'geography': { label: '地理', fields: ['名称', '类别', '描述', '气候', '地形', '资源'] },
+    'faction': { label: '势力', fields: ['名称', '类别', '描述', '目标', '资源', '领地', '关键人物'] },
+    'culture': { label: '文化', fields: ['名称', '类别', '描述', '习俗', '信仰', '语言'] },
+    'history': { label: '历史', fields: ['名称', '类别', '描述', '时间', '影响', '关键事件'] },
+    'rule': { label: '规则', fields: ['名称', '类别', '描述', '规则', '限制', '代价'] }
+  },
+  style: null
+};
+
+function getSubtypeLabel(type, subtype) {
+  if (!subtype || !CARD_SUBTYPES[type] || !CARD_SUBTYPES[type][subtype]) return '';
+  return CARD_SUBTYPES[type][subtype].label;
+}
+
+function getFieldsForType(type, subtype) {
+  if (subtype && CARD_SUBTYPES[type] && CARD_SUBTYPES[type][subtype]) {
+    return CARD_SUBTYPES[type][subtype].fields;
+  }
+  return _cardTemplateFields[type] || [];
+}
+
+function onCardTypeChange() {
+  var radio = document.querySelector('input[name="cfType"]:checked');
+  var type = radio ? radio.value : 'characters';
+  var subtypeRow = document.getElementById('cfSubtypeRow');
+  if (subtypeRow) {
+    subtypeRow.style.display = CARD_SUBTYPES[type] ? '' : 'none';
+    if (CARD_SUBTYPES[type]) {
+      // 重建子类型 chips
+      var h = '<div class="type-grid">';
+      Object.keys(CARD_SUBTYPES[type]).forEach(function(st, i) {
+        var info = CARD_SUBTYPES[type][st];
+        h += '<label class="type-chip"><input type="radio" name="cfSubtype" value="' + st + '" onchange="refreshCardFields()"' + (i === 0 ? ' checked' : '') + '><span>' + info.label + '</span></label>';
+      });
+      h += '</div>';
+      var labelEl = subtypeRow.querySelector('label');
+      subtypeRow.innerHTML = '<label style="font-size:11px;color:var(--text-sub);display:block;margin-bottom:6px">子类型</label>' + h;
+    }
+  }
+  refreshCardFields();
+}
+
 function refreshCardFields() {
   var radio = document.querySelector('input[name="cfType"]:checked');
   var type = radio ? radio.value : 'characters';
@@ -921,13 +986,18 @@ function refreshCardFields() {
   if (!relContainer) return;
   relContainer.innerHTML = '';
   var saved = {};
+  var el = q('cfFields');
+  if (!el) return;
   var existingFields = el.querySelectorAll('.cf-field');
   existingFields.forEach(function(f) {
     var k = f.getAttribute('data-key');
     if (k) saved[k] = f.value;
   });
+  // 获取当前选中的子类型
+  var subRadio = document.querySelector('input[name="cfSubtype"]:checked');
+  var subtype = subRadio ? subRadio.value : '';
   // 重建字段
-  var fields = _cardTemplateFields[type] || [];
+  var fields = getFieldsForType(type, subtype);
   var h = '';
   fields.forEach(function(f) {
     h += '<div style="margin-bottom:8px"><label style="font-size:11px;color:var(--text-sub);display:block;margin-bottom:3px">' + esc(f) + '</label>';
@@ -947,6 +1017,8 @@ function refreshCardFields() {
 async function saveCardForm(cardId) {
   var typeRadio = document.querySelector('input[name="cfType"]:checked');
   var type = typeRadio ? typeRadio.value : 'characters';
+  var subRadio = document.querySelector('input[name="cfSubtype"]:checked');
+  var subtype = subRadio ? subRadio.value : null;
   var name = q('cfName').value.trim();
   if (!name) { toast('请输入名称'); return; }
 
@@ -959,6 +1031,7 @@ async function saveCardForm(cardId) {
   });
 
   var body = { type: type, name: name, content: content };
+  if (subtype) body.subtype = subtype;
   if (cardId) body.id = cardId;
 
   // 人物卡片：写入 relationships
