@@ -1993,6 +1993,18 @@ function renderOutlinePanel() {
           h += '<button class="btn btn-ghost" style="font-size:8px;padding:1px 3px" onclick="pickChapterForBeat('+arcIdx+','+actIdx+','+beatIdx+')" title="选择关联章节">' + (linkedCh ? '🔗 '+esc(linkedCh.title) : '🔗 无') + '</button>';
           h += '<button class="btn btn-ghost" style="font-size:8px;padding:1px 3px;color:#B91C1C" onclick="deleteOutlineItem('+arcIdx+','+actIdx+','+beatIdx+')">🗑</button>';
           h += '</div>';
+          // 场景列表
+          var scenes = beat.scenes || [];
+          h += '<div style="margin-left:20px;padding:2px 0 4px 8px;border-left:1px dashed var(--border-light)">';
+          scenes.forEach(function(scene, sceneIdx) {
+            h += '<div style="padding:2px 8px;font-size:10px;cursor:pointer;color:var(--text-sub);transition:color var(--dur)" onmouseover="this.style.color=\'var(--accent)\'" onmouseout="this.style.color=\'var(--text-sub)\'" onclick="editScene('+arcIdx+','+actIdx+','+beatIdx+','+sceneIdx+')">';
+            h += '🎬 ' + esc(scene.title || '场景');
+            if (scene.estimatedWords) h += ' <span style="color:var(--text-muted)">~' + scene.estimatedWords + '字</span>';
+            if (scene.conflict) h += ' <span style="color:var(--accent);font-size:9px">⚔️</span>';
+            h += '</div>';
+          });
+          h += '<button class="btn btn-ghost" style="font-size:9px;padding:1px 4px;color:var(--accent)" onclick="addScene('+arcIdx+','+actIdx+','+beatIdx+')">+ 🎬 场景</button>';
+          h += '</div>';
         });
         h += '</div>';
       });
@@ -2044,6 +2056,54 @@ function pickChapterForBeat(arcIdx, actIdx, beatIdx) {
   _chapters.forEach(function(c) {
     h += '<div style="padding:8px 18px;cursor:pointer;font-size:13px;'+(beat.linkedChapterId===c.id?'background:var(--bg-hover);font-weight:600':'')+'" onmouseover="this.style.background=\'var(--bg-hover)\'" onmouseout="this.style.background=\''+(beat.linkedChapterId===c.id?'var(--bg-hover)':'')+'\'" onclick="_outline.arcs['+arcIdx+'].items['+actIdx+'].items['+beatIdx+'].linkedChapterId=\''+c.id+'\';this.closest(\'.card-form-overlay\').remove();renderOutlinePanel()">📄 '+esc(c.title)+'</div>';
   });
+  h += '</div>';
+  panel.innerHTML = h;
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+}
+
+function addScene(arcIdx, actIdx, beatIdx) {
+  var beat = _outline.arcs[arcIdx].items[actIdx].items[beatIdx];
+  if (!beat.scenes) beat.scenes = [];
+  beat.scenes.push({
+    id: 'scene_' + Date.now().toString(36),
+    title: '新场景',
+    summary: '',
+    characters: [],
+    location: '',
+    conflict: '',
+    emotion: '',
+    estimatedWords: 0
+  });
+  renderOutlinePanel();
+}
+
+function editScene(arcIdx, actIdx, beatIdx, sceneIdx) {
+  var scene = _outline.arcs[arcIdx].items[actIdx].items[beatIdx].scenes[sceneIdx];
+  if (!scene) return;
+  var overlay = document.createElement('div');
+  overlay.className = 'card-form-overlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.3);backdrop-filter:blur(2px);z-index:200;display:flex;align-items:center;justify-content:center';
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+  var panel = document.createElement('div');
+  panel.style.cssText = 'background:var(--bg);border:1px solid var(--border);border-radius:var(--rm);width:420px;max-height:80vh;overflow-y:auto;box-shadow:0 12px 40px rgba(0,0,0,.15);padding:16px';
+  panel.onclick = function(e) { e.stopPropagation(); };
+  var h = '<div style="font-weight:600;font-size:14px;margin-bottom:12px">🎬 场景编辑</div>';
+  h += '<input id="scTitle" value="' + esc(scene.title||'') + '" placeholder="场景标题" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--r);margin-bottom:8px;font-size:13px;background:var(--bg-panel)">';
+  h += '<textarea id="scSummary" placeholder="内容概要..." style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--r);margin-bottom:8px;font-size:12px;min-height:50px;resize:vertical;background:var(--bg-panel)">' + esc(scene.summary||'') + '</textarea>';
+  h += '<div style="display:flex;gap:8px;margin-bottom:8px">';
+  h += '<div style="flex:1"><label style="font-size:10px;color:var(--text-muted)">出场人物</label><input id="scChars" value="' + esc((scene.characters||[]).join(', ')) + '" placeholder="逗号分隔" style="width:100%;padding:4px 8px;border:1px solid var(--border);border-radius:var(--r);font-size:11px;background:var(--bg-panel)"></div>';
+  h += '<div style="flex:1"><label style="font-size:10px;color:var(--text-muted)">地点</label><input id="scLoc" value="' + esc(scene.location||'') + '" style="width:100%;padding:4px 8px;border:1px solid var(--border);border-radius:var(--r);font-size:11px;background:var(--bg-panel)"></div>';
+  h += '</div>';
+  h += '<div style="display:flex;gap:8px;margin-bottom:8px">';
+  h += '<div style="flex:1"><label style="font-size:10px;color:var(--text-muted)">核心冲突</label><input id="scConflict" value="' + esc(scene.conflict||'') + '" style="width:100%;padding:4px 8px;border:1px solid var(--border);border-radius:var(--r);font-size:11px;background:var(--bg-panel)"></div>';
+  h += '<div style="flex:1"><label style="font-size:10px;color:var(--text-muted)">情绪节奏</label><input id="scEmotion" value="' + esc(scene.emotion||'') + '" placeholder="如：紧张→爆发→平静" style="width:100%;padding:4px 8px;border:1px solid var(--border);border-radius:var(--r);font-size:11px;background:var(--bg-panel)"></div>';
+  h += '</div>';
+  h += '<div style="margin-bottom:12px"><label style="font-size:10px;color:var(--text-muted)">预估字数</label><input id="scWords" type="number" value="' + (scene.estimatedWords||0) + '" style="width:100px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--r);font-size:11px;background:var(--bg-panel)"></div>';
+  h += '<div style="display:flex;gap:8px;justify-content:flex-end">';
+  h += '<button class="btn btn-ghost" style="color:var(--danger)" onclick="_outline.arcs['+arcIdx+'].items['+actIdx+'].items['+beatIdx+'].scenes.splice('+sceneIdx+',1);this.closest(\'.card-form-overlay\').remove();renderOutlinePanel()">删除</button>';
+  h += '<button class="btn" onclick="this.closest(\'.card-form-overlay\').remove()">取消</button>';
+  h += '<button class="btn btn-primary" onclick="var s=_outline.arcs['+arcIdx+'].items['+actIdx+'].items['+beatIdx+'].scenes['+sceneIdx+'];s.title=document.getElementById(\'scTitle\').value;s.summary=document.getElementById(\'scSummary\').value;s.characters=document.getElementById(\'scChars\').value.split(/[,，]/).map(function(x){return x.trim()}).filter(Boolean);s.location=document.getElementById(\'scLoc\').value;s.conflict=document.getElementById(\'scConflict\').value;s.emotion=document.getElementById(\'scEmotion\').value;s.estimatedWords=parseInt(document.getElementById(\'scWords\').value)||0;this.closest(\'.card-form-overlay\').remove();renderOutlinePanel();toast(\'✓ 场景已保存\')">保存</button>';
   h += '</div>';
   panel.innerHTML = h;
   overlay.appendChild(panel);
