@@ -1675,6 +1675,41 @@ function deletePlotThread(id) {
   });
 }
 
+function exportProject(format) {
+  if (!_currentProject) { toast('请先选择项目'); return; }
+  if (format === 'txt') {
+    // 导出 TXT：拼接所有章节
+    fetch(tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/chapters'))
+      .then(function(r) { return r.json(); })
+      .then(function(chapters) {
+        var txt = (_currentProject.name || '墨述') + '\n\n';
+        chapters.forEach(function(ch, i) {
+          txt += '第' + (i + 1) + '章 ' + (ch.title || '') + '\n\n';
+          var body = ch.body || ch.content || '';
+          // 剥离 frontmatter
+          body = body.replace(/^---[\s\S]*?---\s*/g, '');
+          txt += body + '\n\n';
+        });
+        var blob = new Blob([txt], { type: 'text/plain;charset=utf-8' });
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = (_currentProject.name || 'export') + '.txt';
+        a.click();
+        URL.revokeObjectURL(a.href);
+        toast('📄 TXT 已下载');
+      })
+      .catch(function() { toast('❌ 导出失败'); });
+  } else if (format === 'epub') {
+    // 导出 HTML（EPUB 按钮实际调用沉浸式档案导出）
+    var url = tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/export/epub');
+    toast('⏳ 导出中...');
+    fetch(url).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.ok) toast('✅ 已导出到 ' + d.file);
+      else toast('❌ ' + (d.error || '导出失败'));
+    }).catch(function() { toast('❌ 导出失败'); });
+  }
+}
+
 var _writingGraphLoaded = false;
 
 function toggleGraphPanel() {
