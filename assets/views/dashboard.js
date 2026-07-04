@@ -503,7 +503,7 @@ function openGraphModal() {
   content.style.cssText = 'flex:1;width:100%;';
 
   box.appendChild(header);
-  if (filterBar) box.insertBefore(filterBar, content);
+  if (filterBar) box.appendChild(filterBar);
   box.appendChild(content);
   overlay.appendChild(box);
   document.body.appendChild(overlay);

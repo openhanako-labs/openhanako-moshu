@@ -1,4 +1,4 @@
-﻿import { safeProjectId } from "../lib/config.js";
+import { safeProjectId } from "../lib/config.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -405,7 +405,7 @@ export default function (app, ctx) {
     try {
       const { join } = await import("node:path");
       const storygamePath = join(pd, "tools", "storygame.js");
-      const { execute } = await import("file://" + storygamePath.replace(/\\/g, "/"));
+      const { execute } = await import("file://" + storygamePath.replace(/\\/g, "/") + "?t=" + Date.now());
       const result = await execute({ projectId: id, mode: "twine", outputDir: "export" });
       const data = JSON.parse(result.content[0].text);
       if (!data.ok) return c.json({ error: data.message }, 500);
@@ -419,7 +419,7 @@ export default function (app, ctx) {
     try {
       const { join } = await import("node:path");
       const storygamePath = join(pd, "tools", "storygame.js");
-      const { execute } = await import("file://" + storygamePath.replace(/\\/g, "/"));
+      const { execute } = await import("file://" + storygamePath.replace(/\\/g, "/") + "?t=" + Date.now());
       const result = await execute({ projectId: id, mode: "linear", outputDir: "export" });
       const data = JSON.parse(result.content[0].text);
       if (!data.ok) return c.json({ error: data.message }, 500);
@@ -637,7 +637,7 @@ export default function (app, ctx) {
     try {
       const { join } = await import("node:path");
       const analyzePath = join(pd, "tools", "analyze.js");
-      const { execute } = await import("file://" + analyzePath.replace(/\\/g, "/"));
+      const { execute } = await import("file://" + analyzePath.replace(/\\/g, "/") + "?t=" + Date.now());
       const body = await c.req.json();
       const result = await execute(body);
       return c.json(JSON.parse(result.content[0].text));

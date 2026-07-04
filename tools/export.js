@@ -343,10 +343,11 @@ function esc(s) {
 
 
 function safeOutputDir(dir) {
-  if (!dir) return path.join(process.cwd(), "export");
+  var dataDir = process.env.MO_SHU_DIR || path.join(process.env.USERPROFILE || ".", ".hanako", "plugin-data", "mo-shu");
+  if (!dir) return path.join(dataDir, "export");
   if (dir.includes("..")) throw new Error("outputDir 不能包含 ..");
   if (path.isAbsolute(dir)) throw new Error("outputDir 请使用相对路径");
-  return dir;
+  return path.join(dataDir, dir);
 }
 
 export { name, description, parameters, execute };
