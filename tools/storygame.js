@@ -443,16 +443,16 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 function renderBody(text){
   if(!text)return'';
   var h=esc(text);
-  h=h.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,function(m,alt,src){
+  h=h.replace(/!\\[([^\\]]*)\\]\\(([^)]+)\\)/g,function(m,alt,src){
     return '<img src="'+src+'" alt="'+alt+'" style="max-width:100%;height:auto;border-radius:4px;margin:8px 0;display:block">';
   });
-  h=h.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g,'<em>$1</em>')
+  h=h.replace(/\\*\\*(.+?)\\*\\*/g,'<strong>$1</strong>')
+    .replace(/\\*(.+?)\\*/g,'<em>$1</em>')
     .replace(/^### (.+)$/gm,'<h4 style="margin:12px 0 6px">$1</h4>')
     .replace(/^## (.+)$/gm,'<h3 style="margin:16px 0 8px">$1</h3>')
     .replace(/^# (.+)$/gm,'<h2 style="margin:20px 0 10px">$1</h2>')
-    .replace(/\n\n/g,'</p><p>')
-    .replace(/\n/g,'<br>');
+    .replace(/\\n\\n/g,'</p><p>')
+    .replace(/\\n/g,'<br>');
   return '<p>'+h+'</p>';
 }
 function renderChapter(idx) {
