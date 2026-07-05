@@ -517,7 +517,7 @@ function esc(s) { return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt
 function escHtml(s) { return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
 function buildTwineHtml(title, passages) {
-  // 将 passage 内容编码为 JS 对象，通过 CDN 加载 SugarCube 运行时
+  // 将 passage 内容编码为 JS 对象，用自带轻量播放器渲染（不依赖 SugarCube CDN）
   const passageData = {};
   passages.forEach(p => {
     passageData[p.name] = p.content || "";
@@ -532,40 +532,90 @@ function buildTwineHtml(title, passages) {
 <title>${escHtml(title)}</title>
 <style>
 :root { --bg: #1a1a2e; --text: #e0e0e0; --accent: #d49a6a; --link: #7eb8da; --link-hover: #a8d4f0; --panel: #16213e; --border: #2a2a4a; }
-body { margin: 0; background: var(--bg); color: var(--text); font-family: "Songti SC", "Noto Serif SC", Georgia, serif; line-height: 1.9; }
-#ui-bar { display: none; }
-#passages { display: none; }
-.passage { max-width: 720px; margin: 40px auto; padding: 0 24px 60px; }
-.passage h1 { font-size: 24px; color: var(--accent); margin-bottom: 20px; font-weight: 700; }
-.passage p { margin-bottom: 12px; }
-.passage .speaker { color: var(--link); font-weight: 600; }
-.passage .dialogue { color: var(--text); }
-.passage hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
-.passage a { color: var(--link); text-decoration: none; }
-.passage a:hover { color: var(--link-hover); text-decoration: underline; }
-.passage .choices { margin: 20px 0; }
-.passage .choices a { display: inline-block; margin: 4px 8px 4px 0; padding: 8px 18px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; transition: all .15s; }
-.passage .choices a:hover { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+*{margin:0;padding:0;box-sizing:border-box}
+body { background: var(--bg); color: var(--text); font-family: "Songti SC","Noto Serif SC",Georgia,serif; line-height: 1.9; min-height:100vh; }
+#story { max-width: 720px; margin: 0 auto; padding: 40px 24px 80px; }
+#story h1 { font-size: 24px; color: var(--accent); margin-bottom: 20px; font-weight: 700; }
+#story h2 { font-size: 20px; color: var(--accent); margin: 20px 0 12px; }
+#story p { margin-bottom: 12px; }
+#story a { color: var(--link); text-decoration: none; cursor:pointer; }
+#story a:hover { color: var(--link-hover); text-decoration: underline; }
+#story .choices { margin: 24px 0; }
+#story .choices a { display: inline-block; margin: 4px 8px 4px 0; padding: 8px 18px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; transition: all .15s; }
+#story .choices a:hover { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+#story hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+#story .meta { font-size: 11px; color: var(--border); margin-bottom: 16px; letter-spacing:1px; }
+.nav { position:fixed; bottom:0; left:0; right:0; background:var(--panel); border-top:1px solid var(--border); padding:10px 24px; z-index:10; }
+.nav-inner { max-width:720px; margin:0 auto; display:flex; align-items:center; gap:12px; }
+.nav a { font-size:12px; padding:4px 12px; border:1px solid var(--border); border-radius:4px; cursor:pointer; }
+.nav a:hover { background:var(--accent); color:var(--bg); }
+.fade-in { animation: fadeIn .3s ease; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
 </style>
 </head>
 <body>
-<div id="ui-bar"></div>
-<div id="passages"></div>
-<script src="https://cdn.jsdelivr.net/gh/Twalve/SugarCube@2.37.1/sugarcube/2.37.1/sugarcube.min.js"><\/script>
+<div id="story"></div>
+<div class="nav"><div class="nav-inner"><span id="nav-info" style="font-size:11px;color:var(--border)"></span><span style="flex:1"></span><a id="nav-prev" style="opacity:.3">← 上一章</a><a id="nav-next">下一章 →</a></div></div>
 <script>
-(function(){
-  var DATA = ${passageJson};
-  // 在 SugarCube 初始化前注入 passage
-  var origInit = null;
-  // SugarCube v2 在初始化时读取 StoryPassages
-  // 使用 Story.add() API 注册 passage（更可靠）
-  Object.keys(DATA).forEach(function(k){
-    Story.add({ name: k, text: DATA[k], tags: k === "StoryInterface" || k === "StorySettings" ? k : "" });
+var PASSAGES = ${passageJson};
+var passageNames = Object.keys(PASSAGES).filter(function(n){ return n.indexOf('Story')!==0; });
+var currentIdx = 0;
+var storyEl = document.getElementById('story');
+var navInfo = document.getElementById('nav-info');
+var navPrev = document.getElementById('nav-prev');
+var navNext = document.getElementById('nav-next');
+
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function renderPassage(idx){
+  if(idx<0||idx>=passageNames.length) return;
+  currentIdx = idx;
+  var name = passageNames[idx];
+  var raw = PASSAGES[name] || '';
+  // 渲染 passage 内容
+  var html = esc(raw);
+  // SugarCube 链接语法 [[文本->目标]] 和 [[文本|目标]]
+  html = html.replace(/\[\[([^\]]+)->([^\]]+)\]\]/g, function(m,txt,target){
+    var tIdx = passageNames.indexOf(target);
+    if(tIdx<0) return '<a>'+esc(txt)+'</a>';
+    return '<a onclick="renderPassage('+tIdx+')">'+esc(txt)+'</a>';
   });
-  // 启动游戏到 StoryTitle
-  setTimeout(function(){ Story.show("StoryTitle"); }, 200);
-})();
-<\/script>
+  html = html.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, function(m,txt,target){
+    var tIdx = passageNames.indexOf(target);
+    if(tIdx<0) return '<a>'+esc(txt)+'</a>';
+    return '<a onclick="renderPassage('+tIdx+')">'+esc(txt)+'</a>';
+  });
+  // 简单链接 [[目标]]
+  html = html.replace(/\[\[([^\]]+)\]\]/g, function(m,target){
+    var tIdx = passageNames.indexOf(target);
+    if(tIdx<0) return '<a>'+esc(target)+'</a>';
+    return '<a onclick="renderPassage('+tIdx+')">'+esc(target)+'</a>';
+  });
+  // Markdown 粗体斜体
+  html = html.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\*(.+?)\*/g,'<em>$1</em>');
+  // 分段
+  html = html.replace(/\n\n/g,'</p><p>').replace(/\n/g,'<br>');
+  html = '<div class="fade-in"><div class="meta">第 '+(idx+1)+' 章 / '+passageNames.length+'</div><h1>'+esc(name)+'</h1><p>'+html+'</p></div>';
+  storyEl.innerHTML = html;
+  // 导航
+  navInfo.textContent = (idx+1)+' / '+passageNames.length;
+  navPrev.style.opacity = idx>0 ? '1' : '.3';
+  navPrev.style.pointerEvents = idx>0 ? '' : 'none';
+  navNext.style.opacity = idx<passageNames.length-1 ? '1' : '.3';
+  navNext.style.pointerEvents = idx<passageNames.length-1 ? '' : 'none';
+  window.scrollTo(0,0);
+}
+
+navPrev.onclick = function(){ if(currentIdx>0) renderPassage(currentIdx-1); };
+navNext.onclick = function(){ if(currentIdx<passageNames.length-1) renderPassage(currentIdx+1); };
+document.addEventListener('keydown', function(e){
+  if(e.key==='ArrowLeft'&&currentIdx>0) renderPassage(currentIdx-1);
+  if(e.key==='ArrowRight'&&currentIdx<passageNames.length-1) renderPassage(currentIdx+1);
+});
+
+// 启动：跳到第一个非 Story passage
+if(passageNames.length>0) renderPassage(0);
+</script>
 </body>
 </html>`;
 }
