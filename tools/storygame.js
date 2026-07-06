@@ -573,7 +573,19 @@ function renderPassage(idx){
   var name = passageNames[idx];
   var raw = PASSAGES[name] || '';
   // 渲染 passage 内容
-  var html = esc(raw);
+  // 先清理 SugarCube 宏（在转义前处理，直接匹配原始语法）
+  var cleaned = raw
+    .replace(/<<set [^>]*?>>/g, '')
+    .replace(/<<link "([^"]+?)">><<goto "([^"]+?)">>/g, function(m,txt,target){
+      return '[['+txt+'|'+target+']]';
+    })
+    .replace(/<<link '([^']+?)'>><<goto '([^']+?)'>>/g, function(m,txt,target){
+      return '[['+txt+'|'+target+']]';
+    })
+    .replace(/<<back>>/g, '[[← 返回]]')
+    .replace(/<<[^>]+?>>/g, '')
+    .replace(/^== (.+?) ==$/gm, '## $1');
+  var html = esc(cleaned);
   // SugarCube 链接语法 [[文本->目标]] 和 [[文本|目标]]
   html = html.replace(/\\[\\[([^\\]]+)->([^\\]]+)\\]\\]/g, function(m,txt,target){
     var tIdx = passageNames.indexOf(target);
