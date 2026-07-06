@@ -575,26 +575,26 @@ function renderPassage(idx){
   // 渲染 passage 内容
   var html = esc(raw);
   // SugarCube 链接语法 [[文本->目标]] 和 [[文本|目标]]
-  html = html.replace(/\[\[([^\]]+)->([^\]]+)\]\]/g, function(m,txt,target){
+  html = html.replace(/\\[\\[([^\\]]+)->([^\\]]+)\\]\\]/g, function(m,txt,target){
     var tIdx = passageNames.indexOf(target);
     if(tIdx<0) return '<a>'+esc(txt)+'</a>';
     return '<a onclick="renderPassage('+tIdx+')">'+esc(txt)+'</a>';
   });
-  html = html.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, function(m,txt,target){
+  html = html.replace(/\\[\\[([^\\]|]+)\\|([^\\]]+)\\]\\]/g, function(m,txt,target){
     var tIdx = passageNames.indexOf(target);
     if(tIdx<0) return '<a>'+esc(txt)+'</a>';
     return '<a onclick="renderPassage('+tIdx+')">'+esc(txt)+'</a>';
   });
   // 简单链接 [[目标]]
-  html = html.replace(/\[\[([^\]]+)\]\]/g, function(m,target){
+  html = html.replace(/\\[\\[([^\\]]+)\\]\\]/g, function(m,target){
     var tIdx = passageNames.indexOf(target);
     if(tIdx<0) return '<a>'+esc(target)+'</a>';
     return '<a onclick="renderPassage('+tIdx+')">'+esc(target)+'</a>';
   });
   // Markdown 粗体斜体
-  html = html.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\*(.+?)\*/g,'<em>$1</em>');
+  html = html.replace(/\\*\\*(.+?)\\*\\*/g,'<strong>$1</strong>').replace(/\*(.+?)\*/g,'<em>$1</em>');
   // 分段
-  html = html.replace(/\n\n/g,'</p><p>').replace(/\n/g,'<br>');
+  html = html.replace(/\\n\\n/g,'</p><p>').replace(/\n/g,'<br>');
   html = '<div class="fade-in"><div class="meta">第 '+(idx+1)+' 章 / '+passageNames.length+'</div><h1>'+esc(name)+'</h1><p>'+html+'</p></div>';
   storyEl.innerHTML = html;
   // 导航
