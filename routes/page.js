@@ -426,6 +426,20 @@ export default function (app, ctx) {
       return c.json({ ok: true, file: data.file, stats: data.stats });
     } catch(e) { return c.json({ error: e.message }, 500); }
   });
+  // 导出互动文游素材包
+  app.get("/api/project/:id/export/game", async c => {
+    const id = safeProjectId(c.req.param("id"));
+    if (!id) return c.json({ error: "bad id" }, 400);
+    try {
+      const { join } = await import("node:path");
+      const storygamePath = join(pd, "tools", "storygame.js");
+      const { execute } = await import("file://" + storygamePath.replace(/\\/g, "/") + "?t=" + Date.now());
+      const result = await execute({ projectId: id, mode: "game", outputDir: "export" });
+      const data = JSON.parse(result.content[0].text);
+      if (!data.ok) return c.json({ error: data.message }, 500);
+      return c.json({ ok: true, file: data.file, stats: data.stats, message: data.message });
+    } catch(e) { return c.json({ error: e.message }, 500); }
+  });
   // 导出地图 HTML
   app.get("/api/project/:id/export/map", async c => {
     const id = safeProjectId(c.req.param("id"));

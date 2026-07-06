@@ -1586,8 +1586,20 @@ function deleteProject(id, name) {
 }
 
 // ── 互动文游导出 ──
-function exportGamePack() {
-  toast('🎮 素材包准备中，请对 AI 说：「把这个项目导出为互动文游」');
+async function exportGamePack() {
+  if (!_currentProject) { toast('请先选择项目'); return; }
+  toast('🎮 正在生成素材包...');
+  try {
+    var r = await fetch(tu(A + '/api/project/' + encodeURIComponent(_currentProject.id) + '/export/game'));
+    var j = await r.json();
+    if (j.ok) {
+      toast('✅ 素材包已生成！' + j.file);
+    } else {
+      toast('❌ ' + (j.error || '导出失败'));
+    }
+  } catch(e) {
+    toast('❌ 导出失败: ' + e.message);
+  }
 }
 
 async function exportLinearReader() {
