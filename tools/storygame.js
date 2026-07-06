@@ -592,9 +592,9 @@ function renderPassage(idx){
     return '<a onclick="renderPassage('+tIdx+')">'+esc(target)+'</a>';
   });
   // Markdown 粗体斜体
-  html = html.replace(/\\*\\*(.+?)\\*\\*/g,'<strong>$1</strong>').replace(/\*(.+?)\*/g,'<em>$1</em>');
+  html = html.replace(/\\*\\*(.+?)\\*\\*/g,'<strong>$1</strong>').replace(/\\*(.+?)\\*/g,'<em>$1</em>');
   // 分段
-  html = html.replace(/\\n\\n/g,'</p><p>').replace(/\n/g,'<br>');
+  html = html.replace(/\\n\\n/g,'</p><p>').replace(/\\n/g,'<br>');
   html = '<div class="fade-in"><div class="meta">第 '+(idx+1)+' 章 / '+passageNames.length+'</div><h1>'+esc(name)+'</h1><p>'+html+'</p></div>';
   storyEl.innerHTML = html;
   // 导航
