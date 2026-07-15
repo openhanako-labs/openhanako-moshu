@@ -91,4 +91,4 @@ OpenHanako 写作 IDE 插件。暖纸色主题，活动栏 + 侧栏 + 主面板�
 
 ## License
 
-MIT
+[GNU AGPL v3](https://www.gnu.org/licenses/agpl-3.0.html)
