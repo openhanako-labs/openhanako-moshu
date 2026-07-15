@@ -1,5 +1,9 @@
 # 墨述 · MoShu
 
+
+![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)
+
+
 OpenHanako 写作 IDE 插件。暖纸色主题，活动栏 + 侧栏 + 主面板三段式布局，内置项目、章节、卡片、事实、地图、分析六大模块。
 
 > Built for [OpenHanako](https://github.com/liliMozi/openhanako)
