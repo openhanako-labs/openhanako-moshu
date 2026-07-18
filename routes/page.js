@@ -500,7 +500,20 @@ export default function (app, ctx) {
       for (const l of activeLinks) {
         if (!nodes.has(l.source)) nodes.set(l.source, { id: l.source, name: l.sourceName, type: l.sourceType });
         if (!nodes.has(l.target)) nodes.set(l.target, { id: l.target, name: l.targetName, type: l.targetType });
-        edges.push({ id: l.id, source: l.source, target: l.target, relation: l.relation, description: l.description || l.dynamic || '', count: l.count });
+        // 羁绊时间线字段
+        edges.push({ 
+          id: l.id, 
+          source: l.source, 
+          target: l.target, 
+          relation: l.relation, 
+          description: l.description || l.dynamic || '', 
+          count: l.count,
+          // 新字段
+          events: l.events || [],
+          strength: l.strength || 0.5,
+          status: l.status || 'active',
+          lastUpdated: l.lastUpdated,
+        });
       }
       return c.json({ nodes: [...nodes.values()], edges });
     } catch(e) { return c.json({ error: e.message }, 500); }
@@ -518,7 +531,19 @@ export default function (app, ctx) {
     for (const l of activeLinks) {
       if (!nodes.has(l.source)) nodes.set(l.source, { id: l.source, name: l.sourceName, type: l.sourceType });
       if (!nodes.has(l.target)) nodes.set(l.target, { id: l.target, name: l.targetName, type: l.targetType });
-      edges.push({ id: l.id, source: l.source, target: l.target, relation: l.relation, description: l.description || l.dynamic || '', count: l.count });
+      // 羁绊时间线字段
+      edges.push({ 
+        id: l.id, 
+        source: l.source, 
+        target: l.target, 
+        relation: l.relation, 
+        description: l.description || l.dynamic || '', 
+        count: l.count,
+        events: l.events || [],
+        strength: l.strength || 0.5,
+        status: l.status || 'active',
+        lastUpdated: l.lastUpdated,
+      });
     }
     return c.json({ nodes: [...nodes.values()], edges });
   }

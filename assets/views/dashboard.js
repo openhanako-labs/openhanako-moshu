@@ -692,40 +692,341 @@ function renderGraphLegacy() {
 }
 
 function renderCytoscapeGraph(els, containerId) {
-  // ver: 20260527v4
+  // ver: 20260718 - 羁绊档案美化版
   containerId = containerId || 'graphContainer';
   var container = q(containerId);
   if (!container) return;
   if (container._graph) container._graph.destroy();
 
   var isPlot = _graphTab === 'plot';
-  var edgeColor = isPlot ? 'rgba(239,68,68,0.25)' : 'rgba(43,42,39,0.25)';
-  var edgeLabel = isPlot ? 'rgba(239,68,68,0.7)' : '#6F6A60';
-  var height = containerId === 'graphContainer' ? '240px' : '100%';
+  var isFullscreen = containerId !== 'graphContainer';
+  var height = isFullscreen ? '100%' : '280px';
+
+  // 颜色方案 - 更现代、更有层次
+  var charPalette = [
+    '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', 
+    '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9'
+  ];
+  var charIdx = 0;
+  var charColorMap = {};
+
+  // 给每个元素分配颜色
+  els.forEach(function(el) {
+    if (el.data.type === 'character' && !charColorMap[el.data.label]) {
+      charColorMap[el.data.label] = charPalette[charIdx++ % charPalette.length];
+      el.data._color = charColorMap[el.data.label];
+    }
+  });
 
   var cy = cytoscape({
     container: container,
     elements: els,
     style: [
-      { selector: 'node', style: { 'label': 'data(label)', 'font-size': '10px', 'font-family': '"PingFang SC","Microsoft YaHei",sans-serif', 'color': '#2B2A27', 'text-valign': 'bottom', 'text-halign': 'center', 'text-margin-y': 6 } },
-      { selector: 'node[type="character"]', style: { 'background-color': 'data(_color)', 'width': 28, 'height': 28 } },
-      { selector: 'node[type="location"]', style: { 'background-color': '#8B6914', 'width': 20, 'height': 20 } },
-      { selector: 'node[type="fact"]', style: { 'background-color': '#E8734A', 'width': 16, 'height': 16 } },
-      { selector: 'node[type="rule"]', style: { 'background-color': '#9B59B6', 'width': 16, 'height': 16 } },
-      { selector: 'node[type="setting"]', style: { 'background-color': '#6F6A60', 'width': 18, 'height': 18 } },
-      { selector: 'edge', style: { 'width': 1.5, 'line-color': edgeColor, 'curve-style': 'bezier', 'label': 'data(label)', 'font-size': '9px', 'font-weight': '600', 'color': edgeLabel, 'text-opacity': 1, 'text-background-opacity': 1, 'text-background-color': '#FAF6F0', 'text-background-padding': '2px 4px', 'text-background-shape': 'roundrectangle', 'text-border-width': 0.5, 'text-border-color': 'rgba(0,0,0,0.1)', 'text-valign': 'center', 'text-halign': 'center', 'overlay-padding': 0, 'overlay-opacity': 0 } },
-      { selector: 'edge[type="located"]', style: { 'line-style': 'dashed', 'line-color': 'rgba(139,105,20,0.3)' } },
-      { selector: '.dimmed', style: { 'opacity': 0.15 } }
+      // 节点基础样式 - 放大、加阴影
+      { selector: 'node', style: {
+        'label': 'data(label)',
+        'font-size': isFullscreen ? '12px' : '10px',
+        'font-family': '"PingFang SC","Microsoft YaHei",sans-serif',
+        'font-weight': '600',
+        'color': '#2B2A27',
+        'text-valign': 'bottom',
+        'text-halign': 'center',
+        'text-margin-y': 8,
+        'text-outline-color': '#fff',
+        'text-outline-width': 2,
+        'text-outline-opacity': 0.8,
+        'background-opacity': 0.9,
+        'border-width': 2,
+        'border-opacity': 0.8,
+      }},
+      // 人物节点 - 大尺寸、渐变色
+      { selector: 'node[type="character"]', style: {
+        'background-color': 'data(_color)',
+        'width': isFullscreen ? 50 : 40,
+        'height': isFullscreen ? 50 : 40,
+        'border-color': '#fff',
+        'shape': 'ellipse',
+        'background-gradient-stop-colors': 'data(_color) data(_color)',
+        'background-gradient-stop-positions': '0% 100%',
+      }},
+      // 地点节点 - 方形
+      { selector: 'node[type="location"]', style: {
+        'background-color': '#8B6914',
+        'width': isFullscreen ? 35 : 28,
+        'height': isFullscreen ? 35 : 28,
+        'shape': 'round-rectangle',
+        'border-color': '#A67C00',
+      }},
+      // 事实节点 - 菱形
+      { selector: 'node[type="fact"]', style: {
+        'background-color': '#E8734A',
+        'width': isFullscreen ? 28 : 22,
+        'height': isFullscreen ? 28 : 22,
+        'shape': 'diamond',
+        'border-color': '#FF7043',
+      }},
+      // 规则节点 - 六边形
+      { selector: 'node[type="rule"]', style: {
+        'background-color': '#9B59B6',
+        'width': isFullscreen ? 28 : 22,
+        'height': isFullscreen ? 28 : 22,
+        'shape': 'hexagon',
+        'border-color': '#AF7AC5',
+      }},
+      // 设定节点 - 圆角矩形
+      { selector: 'node[type="setting"]', style: {
+        'background-color': '#6F6A60',
+        'width': isFullscreen ? 30 : 24,
+        'height': isFullscreen ? 30 : 24,
+        'shape': 'round-rectangle',
+        'border-color': '#8D8D8D',
+      }},
+      // 边基础样式 - 粗细随强度变化
+      { selector: 'edge', style: {
+        'width': 'mapData(strength, 0, 1, 1, 6)',
+        'line-color': isPlot ? 'rgba(239,68,68,0.4)' : 'rgba(43,42,39,0.3)',
+        'curve-style': 'bezier',
+        'label': 'data(label)',
+        'font-size': isFullscreen ? '10px' : '9px',
+        'font-weight': '600',
+        'color': isPlot ? 'rgba(239,68,68,0.8)' : '#6F6A60',
+        'text-opacity': 0.9,
+        'text-background-opacity': 1,
+        'text-background-color': '#FAF6F0',
+        'text-background-padding': '3px 6px',
+        'text-background-shape': 'roundrectangle',
+        'text-border-width': 1,
+        'text-border-color': 'rgba(0,0,0,0.08)',
+        'text-valign': 'center',
+        'text-halign': 'center',
+        'overlay-padding': 2,
+        'overlay-opacity': 0,
+        'arrow-scale': 0.8,
+        'target-arrow-color': isPlot ? 'rgba(239,68,68,0.4)' : 'rgba(43,42,39,0.3)',
+      }},
+      // 地点关联边 - 虚线
+      { selector: 'edge[type="located"]', style: {
+        'line-style': 'dashed',
+        'line-color': 'rgba(139,105,20,0.4)',
+        'width': 2,
+      }},
+      // 已断开关系 - 虚线+淡化
+      { selector: 'edge[status="broken"]', style: {
+        'line-style': 'dashed',
+        'opacity': 0.4,
+        'line-color': 'rgba(150,150,150,0.5)',
+      }},
+      // 高亮状态
+      { selector: '.highlighted', style: {
+        'opacity': 1,
+        'z-index': 10,
+      }},
+      // 暗化状态
+      { selector: '.dimmed', style: {
+        'opacity': 0.15,
+      }},
+      // 搜索高亮
+      { selector: '.search-match', style: {
+        'border-width': 4,
+        'border-color': '#FFD700',
+        'background-color': '#FFD700',
+        'opacity': 1,
+      }}
     ],
-    layout: { name: 'cose', animate: false, fit: true, padding: 30 },
+    layout: { 
+      name: 'cose', 
+      animate: true,
+      animationDuration: 800,
+      fit: true, 
+      padding: isFullscreen ? 60 : 30,
+      nodeRepulsion: function() { return 8000; },
+      idealEdgeLength: function() { return 100; },
+      edgeElasticity: function() { return 100; },
+      gravity: 0.25,
+      numIter: 1000,
+    },
     zoomingEnabled: true,
-    userZoomingEnabled: true
+    userZoomingEnabled: true,
+    minZoom: 0.3,
+    maxZoom: 3,
+    wheelSensitivity: 0.3,
   });
 
   container._graph = cy;
   container.style.background = 'var(--bg-panel)';
   container.style.borderRadius = 'var(--radius)';
   container.style.height = height;
+  container.style.position = 'relative';
+
+  // ── 缩放控件 ──
+  if (isFullscreen) {
+    var zoomControls = document.createElement('div');
+    zoomControls.style.cssText = 'position:absolute;bottom:16px;right:16px;display:flex;flex-direction:column;gap:4px;z-index:10;';
+    
+    var zoomBtns = [
+      { icon: '+', title: '放大', action: function() { cy.zoom({ level: cy.zoom() * 1.3, renderedPosition: { x: container.clientWidth/2, y: container.clientHeight/2 } }); } },
+      { icon: '−', title: '缩小', action: function() { cy.zoom({ level: cy.zoom() / 1.3, renderedPosition: { x: container.clientWidth/2, y: container.clientHeight/2 } }); } },
+      { icon: '⊙', title: '重置视图', action: function() { cy.fit(undefined, 50); } },
+      { icon: '⟳', title: '重新布局', action: function() { cy.layout({ name: 'cose', animate: true, animationDuration: 800 }).run(); } },
+    ];
+    
+    zoomBtns.forEach(function(btn) {
+      var b = document.createElement('button');
+      b.textContent = btn.icon;
+      b.title = btn.title;
+      b.style.cssText = 'width:32px;height:32px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;';
+      b.onmouseover = function() { this.style.background = 'var(--accent)'; this.style.color = '#fff'; };
+      b.onmouseout = function() { this.style.background = 'var(--bg)'; this.style.color = 'var(--text)'; };
+      b.onclick = btn.action;
+      zoomControls.appendChild(b);
+    });
+    container.appendChild(zoomControls);
+  }
+
+  // ── 搜索框（仅全屏模式） ──
+  if (isFullscreen) {
+    var searchBox = document.createElement('div');
+    searchBox.style.cssText = 'position:absolute;top:12px;left:12px;z-index:10;';
+    
+    var searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.placeholder = '🔍 搜索节点...';
+    searchInput.style.cssText = 'width:200px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:12px;outline:none;';
+    searchInput.onfocus = function() { this.style.borderColor = 'var(--accent)'; };
+    searchInput.onblur = function() { this.style.borderColor = 'var(--border)'; };
+    
+    var searchTimer = null;
+    searchInput.oninput = function() {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(function() {
+        var keyword = searchInput.value.trim().toLowerCase();
+        cy.elements().removeClass('search-match dimmed');
+        if (!keyword) return;
+        
+        var matchNodes = cy.nodes().filter(function(n) {
+          return n.data('label').toLowerCase().includes(keyword);
+        });
+        
+        if (matchNodes.length > 0) {
+          matchNodes.addClass('search-match');
+          cy.elements().not(matchNodes).not(matchNodes.edgesWith(cy.nodes())).addClass('dimmed');
+          // 聚焦到第一个匹配节点
+          cy.animate({ center: { eles: matchNodes[0] }, zoom: 1.5 }, { duration: 500 });
+        }
+      }, 200);
+    };
+    
+    searchBox.appendChild(searchInput);
+    container.appendChild(searchBox);
+  }
+
+  // ── 羁绊时间线滑块（仅全屏模式 + 情节图） ──
+  if (isFullscreen && _graphTab === 'plot') {
+    var timelineBox = document.createElement('div');
+    timelineBox.style.cssText = 'position:absolute;bottom:16px;left:50%;transform:translateX(-50%);z-index:10;display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;box-shadow:0 4px 12px rgba(0,0,0,.1);';
+    
+    var timelineLabel = document.createElement('span');
+    timelineLabel.style.cssText = 'font-size:11px;color:var(--text-muted);white-space:nowrap;';
+    timelineLabel.textContent = '📅 章节';
+    
+    // 收集所有边的事件章节
+    var allChapters = new Set();
+    allChapters.add('all');
+    cy.edges().forEach(function(e) {
+      var events = e.data('events') || [];
+      events.forEach(function(evt) {
+        if (evt.chapter) allChapters.add(evt.chapter);
+      });
+    });
+    var chapterList = Array.from(allChapters).sort();
+    
+    var timelineSlider = document.createElement('input');
+    timelineSlider.type = 'range';
+    timelineSlider.min = 0;
+    timelineSlider.max = chapterList.length - 1;
+    timelineSlider.value = chapterList.length - 1; // 默认显示全部
+    timelineSlider.style.cssText = 'width:200px;accent-color:var(--accent);';
+    
+    var timelineValue = document.createElement('span');
+    timelineValue.style.cssText = 'font-size:11px;color:var(--text);min-width:60px;text-align:center;';
+    timelineValue.textContent = '全部';
+    
+    var timelinePlayBtn = document.createElement('button');
+    timelinePlayBtn.textContent = '▶';
+    timelinePlayBtn.title = '自动播放';
+    timelinePlayBtn.style.cssText = 'width:24px;height:24px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text);font-size:10px;cursor:pointer;';
+    var isPlaying = false;
+    var playTimer = null;
+    
+    timelinePlayBtn.onclick = function() {
+      if (isPlaying) {
+        clearInterval(playTimer);
+        isPlaying = false;
+        timelinePlayBtn.textContent = '▶';
+        return;
+      }
+      isPlaying = true;
+      timelinePlayBtn.textContent = '⏸';
+      timelineSlider.value = 0;
+      updateTimelineFilter();
+      
+      playTimer = setInterval(function() {
+        var next = parseInt(timelineSlider.value) + 1;
+        if (next >= chapterList.length) {
+          clearInterval(playTimer);
+          isPlaying = false;
+          timelinePlayBtn.textContent = '▶';
+          return;
+        }
+        timelineSlider.value = next;
+        updateTimelineFilter();
+      }, 1500);
+    };
+    
+    function updateTimelineFilter() {
+      var idx = parseInt(timelineSlider.value);
+      var chapter = chapterList[idx];
+      timelineValue.textContent = chapter === 'all' ? '全部' : chapter;
+      
+      // 过滤边：只显示在选定章节之前（含）有事件的边
+      cy.edges().forEach(function(e) {
+        var events = e.data('events') || [];
+        if (events.length === 0) {
+          // 无事件的边保持显示
+          e.style('opacity', 0.3);
+          return;
+        }
+        
+        // 检查是否有事件在选定章节之前
+        var hasEventBefore = events.some(function(evt) {
+          return evt.chapter <= chapter;
+        });
+        
+        if (chapter === 'all' || hasEventBefore) {
+          e.style('opacity', 1);
+          // 边粗细随时间变化：后期事件的边更粗
+          var latestEvent = events.filter(function(evt) {
+            return evt.chapter <= chapter;
+          }).pop();
+          if (latestEvent) {
+            var strength = e.data('strength') || 0.5;
+            e.style('width', Math.max(1, strength * 6));
+          }
+        } else {
+          e.style('opacity', 0.08);
+          e.style('width', 0.5);
+        }
+      });
+    }
+    
+    timelineSlider.oninput = updateTimelineFilter;
+    
+    timelineBox.appendChild(timelineLabel);
+    timelineBox.appendChild(timelineSlider);
+    timelineBox.appendChild(timelineValue);
+    timelineBox.appendChild(timelinePlayBtn);
+    container.appendChild(timelineBox);
+  }
 
   // resizeObserver：图谱节点超过容器高度时自动扩展
   if (containerId === 'graphContainer') {
@@ -749,6 +1050,12 @@ function renderCytoscapeGraph(els, containerId) {
     cy.elements().removeClass('dimmed');
     cy.elements().difference(node.neighborhood().add(node)).addClass('dimmed');
   });
+  // 点击节点显示详情面板
+  cy.on('tap', 'node', function(evt) {
+    var node = evt.target;
+    showNodeDetailPanel(node, cy);
+  });
+
   cy.on('dbltap', 'node', function(evt) {
     var node = evt.target;
     // 高亮该节点到所有邻居的最短路径
@@ -758,25 +1065,6 @@ function renderCytoscapeGraph(els, containerId) {
     var highlightSet = cy.elements().intersection(node.neighborhood('node').add(node));
     cy.elements().removeClass('dimmed');
     highlightSet.removeClass('dimmed');
-    // 显示关系链信息
-    var pathInfo = document.getElementById('graphPathInfo');
-    if (pathInfo) pathInfo.remove();
-    var div = document.createElement('div');
-    div.id = 'graphPathInfo';
-    div.style.cssText = 'position:fixed;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;font-size:11px;color:var(--text);box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:250;max-width:250px;pointer-events:none';
-    var relMap = { friend: '好友', rival: '对手', enemy: '敌人', co_present: '同框', dialogue: '对话' };
-    var lines = [node.data('label') + ' 的关系链：'];
-    node.connectedEdges().forEach(function(e) {
-      var other = e.source().id() === node.id() ? e.target() : e.source();
-      var relName = relMap[e.data('relation')] || e.data('relation') || '关系';
-      var count = e.data('count') ? ' ×' + e.data('count') : '';
-      lines.push('  → ' + other.data('label') + ' (' + relName + count + ')');
-    });
-    div.innerHTML = lines.join('<br>');
-    document.body.appendChild(div);
-    div.style.left = Math.min(evt.originalEvent.clientX + 12, window.innerWidth - 260) + 'px';
-    div.style.top = (evt.originalEvent.clientY - 40) + 'px';
-    setTimeout(function() { if (div.parentNode) div.remove(); }, 5000);
   });
   // 悬停边显示详情
   cy.on('mouseover', 'edge', function(evt) {
@@ -821,6 +1109,205 @@ function renderCytoscapeGraph(els, containerId) {
   // 保存引用供全局访问
   container._graphInstance = cy;
   window._graphInstance = cy;
+}
+
+// ═══════════════════════════════════
+//  节点详情面板
+// ═══════════════════════════════════
+
+function showNodeDetailPanel(node, cy) {
+  // 移除旧面板
+  var oldPanel = document.getElementById('nodeDetailPanel');
+  if (oldPanel) oldPanel.remove();
+
+  var label = node.data('label');
+  var nodeType = node.data('type') || 'character';
+  var nodeId = node.id();
+  var edges = node.connectedEdges();
+  
+  // 关系类型映射
+  var relMap = {
+    'friend': '好友', 'rival': '对手', 'enemy': '敌人', 'lover': '恋人',
+    'family': '家人', 'ally': '盟友', 'co_present': '同框', 'dialogue': '对话',
+    'RELATED_TO': '相关', 'CO_OCCUR': '共现', 'RELATED': '关联'
+  };
+  
+  // 构建详情面板
+  var panel = document.createElement('div');
+  panel.id = 'nodeDetailPanel';
+  panel.style.cssText = 'position:fixed;top:80px;right:20px;width:280px;max-height:70vh;background:var(--bg);border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.15);z-index:200;overflow:hidden;display:flex;flex-direction:column;';
+  
+  // 头部
+  var header = document.createElement('div');
+  header.style.cssText = 'padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;';
+  
+  var titleWrap = document.createElement('div');
+  var typeIcon = nodeType === 'character' ? '👤' : nodeType === 'location' ? '📍' : nodeType === 'fact' ? '📝' : nodeType === 'rule' ? '📜' : '⚙️';
+  var title = document.createElement('div');
+  title.style.cssText = 'font-size:15px;font-weight:700;color:var(--text);';
+  title.textContent = typeIcon + ' ' + label;
+  var subtitle = document.createElement('div');
+  subtitle.style.cssText = 'font-size:11px;color:var(--text-muted);margin-top:2px;';
+  subtitle.textContent = 'ID: ' + nodeId.slice(0, 12) + '...';
+  titleWrap.appendChild(title);
+  titleWrap.appendChild(subtitle);
+  
+  var closeBtn = document.createElement('button');
+  closeBtn.textContent = '✕';
+  closeBtn.style.cssText = 'width:24px;height:24px;border:none;background:transparent;color:var(--text-muted);font-size:14px;cursor:pointer;border-radius:4px;';
+  closeBtn.onmouseover = function() { this.style.background = 'var(--bg-hover)'; };
+  closeBtn.onmouseout = function() { this.style.background = 'transparent'; };
+  closeBtn.onclick = function() { panel.remove(); };
+  
+  header.appendChild(titleWrap);
+  header.appendChild(closeBtn);
+  
+  // 内容区域
+  var content = document.createElement('div');
+  content.style.cssText = 'padding:12px 16px;overflow-y:auto;flex:1;';
+  
+  // 关系列表
+  if (edges.length > 0) {
+    var relSection = document.createElement('div');
+    relSection.style.cssText = 'margin-bottom:12px;';
+    var relTitle = document.createElement('div');
+    relTitle.style.cssText = 'font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px;';
+    relTitle.textContent = '关系 (' + edges.length + ')';
+    relSection.appendChild(relTitle);
+    
+    edges.forEach(function(e) {
+      var other = e.source().id() === nodeId ? e.target() : e.source();
+      var relType = e.data('relation') || 'related';
+      var relName = relMap[relType] || relType;
+      var strength = e.data('strength') || 0.5;
+      var events = e.data('events') || [];
+      var status = e.data('status') || 'active';
+      
+      var relItem = document.createElement('div');
+      relItem.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;margin-bottom:4px;cursor:pointer;transition:background 0.15s;';
+      relItem.onmouseover = function() { this.style.background = 'var(--bg-hover)'; };
+      relItem.onmouseout = function() { this.style.background = 'transparent'; };
+      
+      // 强度指示条
+      var strengthBar = document.createElement('div');
+      strengthBar.style.cssText = 'width:4px;height:24px;border-radius:2px;background:var(--accent);opacity:' + strength + ';';
+      
+      var relInfo = document.createElement('div');
+      relInfo.style.cssText = 'flex:1;min-width:0;';
+      var relNameEl = document.createElement('div');
+      relNameEl.style.cssText = 'font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+      relNameEl.textContent = other.data('label');
+      var relTypeEl = document.createElement('div');
+      relTypeEl.style.cssText = 'font-size:10px;color:var(--text-muted);';
+      relTypeEl.textContent = relName + (status === 'broken' ? ' (已断开)' : '');
+      relInfo.appendChild(relNameEl);
+      relInfo.appendChild(relTypeEl);
+      
+      relItem.appendChild(strengthBar);
+      relItem.appendChild(relInfo);
+      
+      // 点击跳转到目标节点
+      relItem.onclick = function() {
+        var targetNode = cy.getElementById(other.id());
+        if (targetNode.length > 0) {
+          cy.animate({ center: { eles: targetNode }, zoom: 1.5 }, { duration: 500 });
+          cy.elements().removeClass('dimmed');
+          targetNode.neighborhood().add(targetNode).addClass('highlighted');
+          showNodeDetailPanel(targetNode, cy);
+        }
+      };
+      
+      relSection.appendChild(relItem);
+    });
+    content.appendChild(relSection);
+  }
+  
+  // 事件时间线
+  var events = [];
+  edges.forEach(function(e) {
+    if (e.data('events')) {
+      e.data('events').forEach(function(evt) {
+        events.push({
+          edge: e,
+          chapter: evt.chapter || '?',
+          description: evt.description || '',
+          type: evt.type || 'event',
+        });
+      });
+    }
+  });
+  
+  if (events.length > 0) {
+    var timelineSection = document.createElement('div');
+    timelineSection.style.cssText = 'margin-bottom:12px;';
+    var timelineTitle = document.createElement('div');
+    timelineTitle.style.cssText = 'font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px;';
+    timelineTitle.textContent = '羁绊时间线';
+    timelineSection.appendChild(timelineTitle);
+    
+    // 按章节排序
+    events.sort(function(a, b) {
+      return (a.chapter || '').localeCompare(b.chapter || '');
+    });
+    
+    events.slice(0, 5).forEach(function(evt) {
+      var evtItem = document.createElement('div');
+      evtItem.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding:4px 0;font-size:11px;';
+      
+      var dot = document.createElement('div');
+      dot.style.cssText = 'width:6px;height:6px;border-radius:50%;background:var(--accent);margin-top:5px;flex-shrink:0;';
+      
+      var evtText = document.createElement('div');
+      evtText.style.cssText = 'color:var(--text);';
+      evtText.innerHTML = '<span style="color:var(--text-muted)">' + esc(evt.chapter) + '</span> ' + esc(evt.description);
+      
+      evtItem.appendChild(dot);
+      evtItem.appendChild(evtText);
+      timelineSection.appendChild(evtItem);
+    });
+    
+    if (events.length > 5) {
+      var more = document.createElement('div');
+      more.style.cssText = 'font-size:10px;color:var(--text-muted);padding-left:14px;';
+      more.textContent = '... 还有 ' + (events.length - 5) + ' 个事件';
+      timelineSection.appendChild(more);
+    }
+    
+    content.appendChild(timelineSection);
+  }
+  
+  // 操作按钮
+  var actions = document.createElement('div');
+  actions.style.cssText = 'padding:10px 16px;border-top:1px solid var(--border);display:flex;gap:8px;';
+  
+  var btnStyle = 'flex:1;padding:6px;border:1px solid var(--border);border-radius:var(--radius);background:transparent;color:var(--text);font-size:11px;cursor:pointer;transition:all 0.15s;';
+  
+  var highlightBtn = document.createElement('button');
+  highlightBtn.textContent = '🔍 高亮关系';
+  highlightBtn.style.cssText = btnStyle;
+  highlightBtn.onmouseover = function() { this.style.background = 'var(--accent)'; this.style.color = '#fff'; };
+  highlightBtn.onmouseout = function() { this.style.background = 'transparent'; this.style.color = 'var(--text)'; };
+  highlightBtn.onclick = function() {
+    cy.elements().removeClass('dimmed');
+    node.neighborhood().add(node).addClass('highlighted');
+  };
+  
+  var focusBtn = document.createElement('button');
+  focusBtn.textContent = '🎯 聚焦节点';
+  focusBtn.style.cssText = btnStyle;
+  focusBtn.onmouseover = function() { this.style.background = 'var(--accent)'; this.style.color = '#fff'; };
+  focusBtn.onmouseout = function() { this.style.background = 'transparent'; this.style.color = 'var(--text)'; };
+  focusBtn.onclick = function() {
+    cy.animate({ center: { eles: node }, zoom: 2 }, { duration: 500 });
+  };
+  
+  actions.appendChild(highlightBtn);
+  actions.appendChild(focusBtn);
+  
+  panel.appendChild(header);
+  panel.appendChild(content);
+  panel.appendChild(actions);
+  document.body.appendChild(panel);
 }
 
 // ═══════════════════════════════════
