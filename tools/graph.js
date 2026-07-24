@@ -4,6 +4,7 @@ import fs from "node:fs";
 
 const description = "实体关系图查询。基于人物关系卡自动建图，支持邻居查询、最短路径、全局关系。触发词：人物关系、关系图、谁和谁是什么关系";
 
+export const sessionPermission = { kind: "plugin_output" };
 const parameters = {
   type: "object",
   properties: {

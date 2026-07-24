@@ -13,6 +13,7 @@ import fs from "node:fs";
 const name = "knowledge_link";
 const description = "扫描 Obsidian Vault 笔记，提取实体和关系，生成关联建议。输出 Obsidian [[wikilink]] 格式的链接建议，可一键写入笔记。触发词：笔记关联、知识关联、发现隐藏关联、knowledge link。";
 
+export const sessionPermission = { kind: "plugin_output" };
 const parameters = {
   type: "object",
   properties: {

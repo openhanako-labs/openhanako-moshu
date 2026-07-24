@@ -4,6 +4,7 @@ import path from "node:path";
 
 const description = "章节管理：写作、修订、列出、查看章节内容。支持多版本保留。";
 
+export const sessionPermission = { kind: "plugin_output" };
 const parameters = {
   type: "object",
   properties: {
@@ -104,11 +105,30 @@ async function execute(input) {
       }
       idx.chapters.sort((a, b) => a.order - b.order);
 
-      // 写内容到 md 文件（write 时内容已经是精简后的，直接写入）
+      // 写内容到 md 文件
       if (input.content) {
         const chDir = path.join(projDir, "chapters");
         fs.mkdirSync(chDir, { recursive: true });
-        fs.writeFileSync(path.join(chDir, `${chId}.md`), input.content, "utf-8");
+        const chMd = path.join(chDir, `${chId}.md`);
+        // 覆盖已存在章节时，先把旧版本归档为 _rev_N（与 revise 一致，防 AI/写覆盖丢原文）
+        if (existing >= 0 && fs.existsSync(chMd)) {
+          const originalContent = fs.readFileSync(chMd, "utf-8");
+          let originalBase64 = "";
+          const coverBlockMatch = originalContent.match(/cover:\n(\s*)image:\s*(data:image\/\w+;base64,[^\r\n]*)/m);
+          const coverInlineMatch = originalContent.match(/^\s*cover:\s*image:\s*(data:image\/\w+;base64,[^\r\n]*)/m);
+          const coverMatch = coverBlockMatch || coverInlineMatch;
+          if (coverMatch) originalBase64 = coverMatch[2] || coverMatch[1];
+          let rev = 1;
+          while (fs.existsSync(path.join(chDir, `${chId}_rev_${rev}.md`))) rev++;
+          fs.renameSync(chMd, path.join(chDir, `${chId}_rev_${rev}.md`));
+          let restoredContent = input.content;
+          if (originalBase64 && input.content.includes("[base64-cover-image]")) {
+            restoredContent = input.content.replace(/image:\s*\[base64-cover-image\]/, "image: " + originalBase64);
+          }
+          fs.writeFileSync(chMd, restoredContent, "utf-8");
+        } else {
+          fs.writeFileSync(chMd, input.content, "utf-8");
+        }
       }
 
       // 更新索引（走写入队列）

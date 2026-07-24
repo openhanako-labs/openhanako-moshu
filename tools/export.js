@@ -4,6 +4,7 @@ import path from "node:path";
 
 const description = "沉浸式档案导出。将项目导出为独立 HTML 档案终端风格阅读器，可在浏览器中直接打开。";
 
+export const sessionPermission = { kind: "plugin_output" };
 const parameters = {
   type: "object", properties: {
     projectId: { type: "string", description: "项目 ID" },

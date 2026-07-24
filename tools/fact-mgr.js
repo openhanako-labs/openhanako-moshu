@@ -4,6 +4,7 @@ import path from "node:path";
 
 const description = "事实库管理：添加、检索、压缩事实。项目的事实（facts）存储在 facts.jsonl 中，支持覆盖和关键词检索。支持 constant(常驻)/priority(优先级)/chapterGate(章槛) 增强字段。";
 
+export const sessionPermission = { kind: "plugin_output" };
 const parameters = {
   type: "object",
   properties: {

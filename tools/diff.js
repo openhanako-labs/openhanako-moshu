@@ -4,6 +4,7 @@ import path from "node:path";
 
 const description = "章节修订 diff 工具。比对章节新旧版本的差异，生成可读的对比摘要。action=list 列出所有章节的修订版本；action=detect 检测最新修订差异。";
 
+export const sessionPermission = { readOnly: true };
 const parameters = {
   type: "object", properties: {
     action: { type: "string", enum: ["detect", "list"],

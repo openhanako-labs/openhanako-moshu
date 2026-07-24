@@ -4,6 +4,7 @@ import path from "node:path";
 
 const description = "跨文件搜索：在所有章节、卡片、事实中搜索关键词。高频操作如「搜索所有提到'陈砚秋'的内容」。";
 
+export const sessionPermission = { readOnly: true };
 const parameters = {
   type: "object", properties: {
     projectId: { type: "string", description: "项目 ID" },

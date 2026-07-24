@@ -1,5 +1,6 @@
 const name = "novel_ping";
 const description = "墨述心跳检测";
+export const sessionPermission = { readOnly: true };
 const parameters = { type: "object", properties: {} };
 
 async function execute() {

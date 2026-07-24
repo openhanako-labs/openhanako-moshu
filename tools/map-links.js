@@ -4,6 +4,7 @@ import path from "node:path";
 
 const description = "解析章节内容中的 {{map/地点名}} 语法，生成地点链接列表。写入章节时自动关联地图标记。";
 
+export const sessionPermission = { kind: "plugin_output" };
 const parameters = {
   type: "object", properties: {
     projectId: { type: "string", description: "项目 ID" },

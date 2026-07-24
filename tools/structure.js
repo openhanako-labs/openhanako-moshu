@@ -3,6 +3,7 @@ import path from "node:path";
 
 const description = "故事结构管理：大纲树、剧情弧、时间线事件。支持幕/卷/章层级管理。";
 
+export const sessionPermission = { kind: "plugin_output" };
 const parameters = {
   type: "object",
   properties: {

@@ -4,6 +4,7 @@ import path from "node:path";
 
 const description = "RPG 场景导出 + 跑团 GM 事件生成。将墨述项目数据（角色/地点/事实/伏笔/关系图）导出为 RPG 场景 JSON，并支持随机生成 GM 事件。";
 
+export const sessionPermission = { kind: "plugin_output" };
 const parameters = {
   type: "object",
   properties: {

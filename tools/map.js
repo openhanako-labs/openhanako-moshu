@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 
 const description = "地图标记管理。管理项目地图的标记点，支持添加/编辑/删除/列表，每个标记可关联章节。";
 
+export const sessionPermission = { kind: "plugin_output" };
 const parameters = {
   type: "object", properties: {
     action: { type: "string", enum: ["create", "list", "edit", "delete", "export"],

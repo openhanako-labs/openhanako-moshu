@@ -1,5 +1,6 @@
 const name = "novel_update_card";
 const description = "添加或更新项目卡片。类型：characters(人物)/world(世界观)/style(文风)";
+export const sessionPermission = { kind: "plugin_output" };
 const parameters = {
   type: "object", properties: {
     projectId: { type: "string", description: "项目 ID" },
@@ -8,6 +9,7 @@ const parameters = {
     name: { type: "string", description: "卡片名称" },
     content: { type: "object", description: "卡片内容" },
     tags: { type: "array", items: { type: "string" }, description: "标签" },
+    visibility: { type: "string", enum: ["all", "developer"], description: "可见性（仅 characters 生效）：all=作者+AI都见(默认)/developer=仅作者后台，AI写作时脱敏" },
   }, required: ["projectId", "type"],
 };
 

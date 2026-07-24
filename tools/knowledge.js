@@ -3,6 +3,7 @@ import path from "node:path";
 
 const description = "辞海管理：世界规则、术语定义、世界观知识。支持规则冲突检测和跨领域检索。";
 
+export const sessionPermission = { kind: "plugin_output" };
 const parameters = {
   type: "object",
   properties: {

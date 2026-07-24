@@ -4,6 +4,7 @@ import path from "node:path";
 
 const description = "导出项目看板。生成独立 HTML 看板，包含项目总览、卡片墙、编年史时间线。";
 
+export const sessionPermission = { kind: "plugin_output" };
 const parameters = {
   type: "object", properties: {
     projectId: { type: "string", description: "项目 ID" },

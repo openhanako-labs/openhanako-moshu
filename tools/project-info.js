@@ -1,5 +1,6 @@
 const name = "novel_project_info";
 const description = "查看项目详情";
+export const sessionPermission = { readOnly: true };
 const parameters = { type: "object", properties: { projectId: { type: "string", description: "项目 ID" } }, required: ["projectId"] };
 
 async function execute(input) {

@@ -4,6 +4,7 @@ import path from "node:path";
 
 const description = "互动文游导出。将章节导出为线性 JSON 剧本 + HTML 播放器，支持章节导航、阅读进度、主题切换。支持 mode: 'game' 导出分支互动文游——素材包供 AI 生成 JSON，或提供 gameJson 直接打包 HTML。";
 
+export const sessionPermission = { kind: "plugin_output" };
 const parameters = {
   type: "object", properties: {
     projectId: { type: "string", description: "项目 ID" },

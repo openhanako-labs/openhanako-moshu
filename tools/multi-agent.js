@@ -4,6 +4,7 @@ import path from "node:path";
 
 const description = "多 Agent 写作模式。角色驱动的写作流水线：设定→大纲→正文→审稿，每个角色槽位可配置由哪个 Agent 或模型担任。支持对话驱动或后台流水线。";
 
+export const sessionPermission = { kind: "plugin_output" };
 const parameters = {
   type: "object",
   properties: {

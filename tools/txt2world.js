@@ -4,6 +4,7 @@ import path from "node:path";
 
 const description = "TXT → 世界观导入向导。上传长文本自动分块，为每块生成提取指令（人物/势力/物品/关系），Agent 处理后写入墨述卡片+事实+关系图。支持生成独立世界观 Wiki 页面。";
 
+export const sessionPermission = { kind: "plugin_output" };
 const parameters = {
   type: "object",
   properties: {

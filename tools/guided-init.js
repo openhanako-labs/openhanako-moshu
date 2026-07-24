@@ -4,6 +4,7 @@ import path from "node:path";
 
 const description = "🎯 新手引导 — 三步完成项目创建：1.输入名称 2.填写类型和世界观 3.开始写作。首次使用墨述时推荐先试试这个。";
 
+export const sessionPermission = { kind: "plugin_output" };
 const parameters = {
   type: "object",
   properties: {

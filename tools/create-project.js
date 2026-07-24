@@ -1,5 +1,6 @@
 const name = "novel_create_project";
 const description = "创建写作项目";
+export const sessionPermission = { kind: "plugin_output" };
 const parameters = {
   type: "object", properties: {
     name: { type: "string", description: "项目名称" },

@@ -4,6 +4,7 @@ import path from "node:path";
 
 const description = "合并多个章节为一个章节。将选中章节的正文按顺序拼接，生成新章节。";
 
+export const sessionPermission = { kind: "plugin_output" };
 const parameters = {
   type: "object",
   properties: {

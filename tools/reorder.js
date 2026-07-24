@@ -4,6 +4,7 @@ import path from "node:path";
 
 const description = "批量重排章节顺序。接收一个有序的章节ID数组，更新 chapters.json 中的 order 字段。";
 
+export const sessionPermission = { kind: "plugin_output" };
 const parameters = {
   type: "object",
   properties: {

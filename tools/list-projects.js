@@ -1,5 +1,6 @@
 const name = "novel_list_projects";
 const description = "列出所有写作项目";
+export const sessionPermission = { readOnly: true };
 const parameters = { type: "object", properties: {} };
 
 async function execute() {

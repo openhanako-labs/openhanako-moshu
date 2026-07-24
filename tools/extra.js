@@ -4,6 +4,7 @@ import path from "node:path";
 
 const description = "额外工具：章节历史查看/回退、搜索归档事实、章节 diff 对比。";
 
+export const sessionPermission = { kind: "plugin_output" };
 const parameters = {
   type: "object", properties: {
     action: { type: "string", enum: ["chapter_history", "chapter_revert", "fact_archived", "diff"],

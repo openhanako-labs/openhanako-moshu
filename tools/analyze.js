@@ -4,6 +4,7 @@ import path from "node:path";
 
 const description = "章节分析工具：一致性校验、悬念钩子检测、去AI味检测、交叉验证、文风分析。分析已写章节的内容质量。";
 
+export const sessionPermission = { readOnly: true };
 const parameters = {
   type: "object",
   properties: {

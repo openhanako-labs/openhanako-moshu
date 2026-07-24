@@ -1,5 +1,6 @@
 const name = "novel_get_cards";
 const description = "获取项目卡片列表，可选按类型过滤";
+export const sessionPermission = { readOnly: true };
 const parameters = {
   type: "object", properties: {
     projectId: { type: "string", description: "项目 ID" },
@@ -15,7 +16,7 @@ async function execute(input) {
     const { ok, json, error } = await import("../lib/output.js");
     const cards = await listCards(await getDataDir(), input.projectId, input.type || null);
     if (!cards.length) return ok(`📭 暂无${input.type ? TYPE_LABELS[input.type] : "卡片"}`);
-    return json({ ok: true, count: cards.length, cards: cards.map(c => ({ id: c.id, name: c.name, type: c.type, tags: c.tags, updated_at: c.updated_at })) });
+    return json({ ok: true, count: cards.length, cards: cards.map(c => ({ id: c.id, name: c.name, type: c.type, tags: c.tags, visibility: c.visibility || "all", updated_at: c.updated_at })) });
   } catch (e) {
     const { error: er } = await import("../lib/output.js");
     return er(e.message);
